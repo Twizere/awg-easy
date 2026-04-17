@@ -48,6 +48,7 @@ const {
   getCompatApiStatus,
   processAmneziaCompatRequest,
 } = require('./amneziaCompatApi');
+const Util = require('./Util');
 
 const requiresPassword = !!PASSWORD_HASH;
 const requiresPrometheusPassword = !!PROMETHEUS_METRICS_PASSWORD;
@@ -70,6 +71,25 @@ const isPasswordValid = (password, hash) => {
 
   return false;
 };
+
+function assertSafeTunnelName(tunnel) {
+  if (tunnel === '__proto__' || tunnel === 'constructor' || tunnel === 'prototype') {
+    throw createError({ status: 403 });
+  }
+  if (!Util.isValidTunnelInterfaceName(tunnel)) {
+    throw createError({ status: 400, message: 'Invalid tunnel name' });
+  }
+}
+
+function tunnelFromQuery(event, fallback = 'wg0') {
+  const raw = (event.node.req.url || '').split('?')[1] || '';
+  if (!raw) return fallback;
+  const params = new URLSearchParams(raw);
+  const t = params.get('tunnel');
+  if (t === 'all') return 'all';
+  if (t && Util.isValidTunnelInterfaceName(t)) return t;
+  return fallback;
+}
 
 const cronJobEveryMinute = async () => {
   await WireGuard.cronJobEveryMinute();
@@ -137,7 +157,7 @@ module.exports = class Server {
         return {
           dicebear: DICEBEAR_TYPE,
           gravatar: USE_GRAVATAR,
-        }
+        };
       }))
 
       // Authentication
@@ -159,12 +179,11 @@ module.exports = class Server {
           });
         }
         const clientOneTimeLink = getRouterParam(event, 'clientOneTimeLink');
-        const clients = await WireGuard.getClients();
-        const client = clients.find((client) => client.oneTimeLink === clientOneTimeLink);
-        if (!client) return;
-        const clientId = client.id;
-        const config = await WireGuard.getClientConfiguration({ clientId });
-        await WireGuard.eraseOneTimeLink({ clientId });
+        const found = await WireGuard.findClientByOneTimeLink(clientOneTimeLink);
+        if (!found) return;
+        const { tunnel, clientId } = found;
+        const config = await WireGuard.getClientConfiguration({ clientId, tunnel });
+        await WireGuard.eraseOneTimeLink({ clientId, tunnel });
         setHeader(event, 'Content-Disposition', `attachment; filename="${clientOneTimeLink}.conf"`);
         setHeader(event, 'Content-Type', 'text/plain');
         return config;
@@ -292,8 +311,7 @@ module.exports = class Server {
         return config;
       }))
       .post('/api/wireguard/client', defineEventHandler(async (event) => {
-        const { name } = await readBody(event);
-        const { expiredDate } = await readBody(event);
+        const { name, expiredDate } = await readBody(event);
         await WireGuard.createClient({ name, expiredDate });
         return { success: true };
       }))
@@ -357,6 +375,127 @@ module.exports = class Server {
         }
         const { expireDate } = await readBody(event);
         await WireGuard.updateClientExpireDate({ clientId, expireDate });
+        return { success: true };
+      }))
+
+      .get('/api/wireguard/tunnel', defineEventHandler(async () => {
+        return WireGuard.listTunnels();
+      }))
+      .get('/api/wireguard/:tunnel/client', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        assertSafeTunnelName(tunnel);
+        return WireGuard.getClientsForTunnel(tunnel);
+      }))
+      .get('/api/wireguard/:tunnel/client/:clientId/qrcode.svg', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        const svg = await WireGuard.getClientQRCodeSVG({ clientId, tunnel });
+        setHeader(event, 'Content-Type', 'image/svg+xml');
+        return svg;
+      }))
+      .get('/api/wireguard/:tunnel/client/:clientId/configuration', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        const client = await WireGuard.getClient({ clientId, tunnel });
+        const config = await WireGuard.getClientConfiguration({ clientId, tunnel });
+        const configName = client.name
+          .replace(/[^a-zA-Z0-9_=+.-]/g, '-')
+          .replace(/(-{2,}|-$)/g, '-')
+          .replace(/-$/, '')
+          .substring(0, 32);
+        setHeader(event, 'Content-Disposition', `attachment; filename="${configName || clientId}.conf"`);
+        setHeader(event, 'Content-Type', 'text/plain');
+        return config;
+      }))
+      .post('/api/wireguard/:tunnel/client', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        assertSafeTunnelName(tunnel);
+        const { name, expiredDate } = await readBody(event);
+        await WireGuard.createClient({ name, expiredDate, tunnel });
+        return { success: true };
+      }))
+      .delete('/api/wireguard/:tunnel/client/:clientId', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        await WireGuard.deleteClient({ clientId, tunnel });
+        return { success: true };
+      }))
+      .post('/api/wireguard/:tunnel/client/:clientId/enable', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        await WireGuard.enableClient({ clientId, tunnel });
+        return { success: true };
+      }))
+      .post('/api/wireguard/:tunnel/client/:clientId/generateOneTimeLink', defineEventHandler(async (event) => {
+        if (WG_ENABLE_ONE_TIME_LINKS === 'false') {
+          throw createError({
+            status: 404,
+            message: 'Invalid state',
+          });
+        }
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        await WireGuard.generateOneTimeLink({ clientId, tunnel });
+        return { success: true };
+      }))
+      .post('/api/wireguard/:tunnel/client/:clientId/disable', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        await WireGuard.disableClient({ clientId, tunnel });
+        return { success: true };
+      }))
+      .put('/api/wireguard/:tunnel/client/:clientId/name', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        const { name } = await readBody(event);
+        await WireGuard.updateClientName({ clientId, name, tunnel });
+        return { success: true };
+      }))
+      .put('/api/wireguard/:tunnel/client/:clientId/address', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        const { address } = await readBody(event);
+        await WireGuard.updateClientAddress({ clientId, address, tunnel });
+        return { success: true };
+      }))
+      .put('/api/wireguard/:tunnel/client/:clientId/expireDate', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        const clientId = getRouterParam(event, 'clientId');
+        assertSafeTunnelName(tunnel);
+        if (clientId === '__proto__' || clientId === 'constructor' || clientId === 'prototype') {
+          throw createError({ status: 403 });
+        }
+        const { expireDate } = await readBody(event);
+        await WireGuard.updateClientExpireDate({ clientId, expireDate, tunnel });
         return { success: true };
       }));
 
@@ -433,14 +572,16 @@ module.exports = class Server {
 
     router3
       .get('/api/wireguard/backup', defineEventHandler(async (event) => {
-        const config = await WireGuard.backupConfiguration();
-        setHeader(event, 'Content-Disposition', 'attachment; filename="wg0.json"');
+        const t = tunnelFromQuery(event, 'wg0');
+        const config = await WireGuard.backupConfiguration(t);
+        const filename = t === 'all' ? 'wireguard-all-tunnels.json' : `${t}.json`;
+        setHeader(event, 'Content-Disposition', `attachment; filename="${filename}"`);
         setHeader(event, 'Content-Type', 'text/json');
         return config;
       }))
       .put('/api/wireguard/restore', defineEventHandler(async (event) => {
-        const { file } = await readBody(event);
-        await WireGuard.restoreConfiguration(file);
+        const { file, tunnel = 'wg0' } = await readBody(event);
+        await WireGuard.restoreConfiguration(file, tunnel);
         return { success: true };
       }));
 

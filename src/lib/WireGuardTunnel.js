@@ -15,7 +15,6 @@ const {
   WG_PATH,
   WG_HOST,
   WG_PORT,
-  WG_CONFIG_PORT,
   WG_MTU,
   WG_DEFAULT_DNS,
   WG_DEFAULT_ADDRESS,
@@ -36,9 +35,26 @@ const {
   H2,
   H3,
   H4,
+  WG_TUNNEL_DEFAULT_LISTEN_PORT,
 } = require('../config');
 
-module.exports = class WireGuard {
+module.exports = class WireGuardTunnel {
+
+  constructor(tunnelName, options = {}) {
+    if (!Util.isValidTunnelInterfaceName(tunnelName)) {
+      throw new Error(`Invalid tunnel/interface name: ${tunnelName}`);
+    }
+    this.ifName = tunnelName;
+    /** @type {{ address?: string, listenPort?: number } | null} */
+    this.__newTunnelDefaults = options.newTunnelDefaults || null;
+  }
+
+  __addressPoolPattern(config) {
+    const a = config.server.address;
+    if (!a || !Util.isValidIPv4(a)) return WG_DEFAULT_ADDRESS;
+    const oct = a.split('.');
+    return `${oct[0]}.${oct[1]}.${oct[2]}.x`;
+  }
 
   async __buildConfig() {
     this.__configPromise = Promise.resolve().then(async () => {
@@ -49,7 +65,7 @@ module.exports = class WireGuard {
       debug('Loading configuration...');
       let config;
       try {
-        config = await fs.readFile(path.join(WG_PATH, 'wg0.json'), 'utf8');
+        config = await fs.readFile(path.join(WG_PATH, `${this.ifName}.json`), 'utf8');
         config = JSON.parse(config);
         debug('Configuration loaded.');
       } catch (err) {
@@ -57,23 +73,28 @@ module.exports = class WireGuard {
         const publicKey = await Util.exec(`echo ${privateKey} | wg pubkey`, {
           log: 'echo ***hidden*** | wg pubkey',
         });
-        const address = WG_DEFAULT_ADDRESS.replace('x', '1');
-
+        const address = (this.__newTunnelDefaults && this.__newTunnelDefaults.address)
+          ? this.__newTunnelDefaults.address
+          : WG_DEFAULT_ADDRESS.replace('x', '1');
+        const server = {
+          privateKey,
+          publicKey,
+          address,
+          jc: JC,
+          jmin: JMIN,
+          jmax: JMAX,
+          s1: S1,
+          s2: S2,
+          h1: H1,
+          h2: H2,
+          h3: H3,
+          h4: H4,
+        };
+        if (this.__newTunnelDefaults && this.__newTunnelDefaults.listenPort != null) {
+          server.listenPort = Number(this.__newTunnelDefaults.listenPort);
+        }
         config = {
-          server: {
-            privateKey,
-            publicKey,
-            address,
-            jc: JC,
-            jmin: JMIN,
-            jmax: JMAX,
-            s1: S1,
-            s2: S2,
-            h1: H1,
-            h2: H2,
-            h3: H3,
-            h4: H4,
-          },
+          server,
           clients: {},
         };
         debug('Configuration generated.');
@@ -90,10 +111,10 @@ module.exports = class WireGuard {
       const config = await this.__buildConfig();
 
       await this.__saveConfig(config);
-      await Util.exec('wg-quick down wg0').catch(() => {});
-      await Util.exec('wg-quick up wg0').catch((err) => {
-        if (err && err.message && err.message.includes('Cannot find device "wg0"')) {
-          throw new Error('WireGuard exited with the error: Cannot find device "wg0"\nThis usually means that your host\'s kernel does not support WireGuard!');
+      await Util.exec(`wg-quick down ${this.ifName}`).catch(() => {});
+      await Util.exec(`wg-quick up ${this.ifName}`).catch((err) => {
+        if (err && err.message && err.message.includes(`Cannot find device "${this.ifName}"`)) {
+          throw new Error(`WireGuard exited with the error: Cannot find device "${this.ifName}"\nThis usually means that your host's kernel does not support WireGuard!`);
         }
 
         throw err;
@@ -115,8 +136,28 @@ module.exports = class WireGuard {
   }
 
   __effectiveListenPort(config) {
-    const p = config.server.listenPort != null ? String(config.server.listenPort) : WG_PORT;
-    return p;
+    if (config.server.listenPort != null && String(config.server.listenPort).trim() !== '') {
+      return String(config.server.listenPort);
+    }
+    const mapped = WG_TUNNEL_DEFAULT_LISTEN_PORT[this.ifName];
+    if (mapped != null && String(mapped).trim() !== '') return String(mapped);
+    return String(WG_PORT);
+  }
+
+  __serverSubnetSlash24(config) {
+    const a = String(config.server.address || '');
+    const oct = a.split('.');
+    if (oct.length !== 4 || !Util.isValidIPv4(a)) {
+      return `${WG_DEFAULT_ADDRESS.replace('x', '0')}/24`;
+    }
+    return `${oct[0]}.${oct[1]}.${oct[2]}.0/24`;
+  }
+
+  __expandWireguardScriptTemplates(str, listenPort, serverSubnetCidr) {
+    return String(str || '')
+      .replace(/\{INTERFACE\}/g, this.ifName)
+      .replace(/\{LISTEN_PORT\}/g, listenPort)
+      .replace(/\{SERVER_SUBNET\}/g, serverSubnetCidr);
   }
 
   __peerAllowedIPsLine(client) {
@@ -128,6 +169,8 @@ module.exports = class WireGuard {
 
   async __saveConfig(config) {
     const listenPort = this.__effectiveListenPort(config);
+    const serverSubnet = this.__serverSubnetSlash24(config);
+    const tpl = (s) => this.__expandWireguardScriptTemplates(s, listenPort, serverSubnet);
     let result = `
 # Note: Do not edit this file directly.
 # Your changes will be overwritten!
@@ -137,10 +180,10 @@ module.exports = class WireGuard {
 PrivateKey = ${config.server.privateKey}
 Address = ${config.server.address}/24
 ListenPort = ${listenPort}
-PreUp = ${WG_PRE_UP}
-PostUp = ${WG_POST_UP}
-PreDown = ${WG_PRE_DOWN}
-PostDown = ${WG_POST_DOWN}
+PreUp = ${tpl(WG_PRE_UP)}
+PostUp = ${tpl(WG_POST_UP)}
+PreDown = ${tpl(WG_PRE_DOWN)}
+PostDown = ${tpl(WG_POST_DOWN)}
 Jc = ${config.server.jc}
 Jmin = ${config.server.jmin}
 Jmax = ${config.server.jmax}
@@ -165,10 +208,10 @@ ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
     }
 
     debug('Config saving...');
-    await fs.writeFile(path.join(WG_PATH, 'wg0.json'), JSON.stringify(config, false, 2), {
+    await fs.writeFile(path.join(WG_PATH, `${this.ifName}.json`), JSON.stringify(config, false, 2), {
       mode: 0o660,
     });
-    await fs.writeFile(path.join(WG_PATH, 'wg0.conf'), result, {
+    await fs.writeFile(path.join(WG_PATH, `${this.ifName}.conf`), result, {
       mode: 0o600,
     });
     debug('Config saved.');
@@ -176,7 +219,7 @@ ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
 
   async __syncConfig() {
     debug('Config syncing...');
-    await Util.exec('wg syncconf wg0 <(wg-quick strip wg0)');
+    await Util.exec(`wg syncconf ${this.ifName} <(wg-quick strip ${this.ifName})`);
     debug('Config synced.');
   }
 
@@ -205,7 +248,7 @@ ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
     }));
 
     // Loop WireGuard status
-    const dump = await Util.exec('wg show wg0 dump', {
+    const dump = await Util.exec(`wg show ${this.ifName} dump`, {
       log: false,
     });
     dump
@@ -274,7 +317,7 @@ PublicKey = ${config.server.publicKey}
 ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
 }AllowedIPs = ${WG_ALLOWED_IPS}
 PersistentKeepalive = ${WG_PERSISTENT_KEEPALIVE}
-Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
+Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
   }
 
   async getClientQRCodeSVG({ clientId }) {
@@ -300,13 +343,14 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
 
     // Calculate next IP
     let address;
+    const pool = this.__addressPoolPattern(config);
     for (let i = 2; i < 255; i++) {
       const client = Object.values(config.clients).find((client) => {
-        return client.address === WG_DEFAULT_ADDRESS.replace('x', i);
+        return client.address === pool.replace('x', i);
       });
 
       if (!client) {
-        address = WG_DEFAULT_ADDRESS.replace('x', i);
+        address = pool.replace('x', i);
         break;
       }
     }
@@ -447,7 +491,7 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
 
   // Shutdown wireguard
   async Shutdown() {
-    await Util.exec('wg-quick down wg0').catch(() => {});
+    await Util.exec(`wg-quick down ${this.ifName}`).catch(() => {});
   }
 
   async cronJobEveryMinute() {
@@ -498,24 +542,24 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
       if (client.endpoint !== null) {
         wireguardConnectedPeersCount++;
       }
-      wireguardSentBytes += `wireguard_sent_bytes{interface="wg0",enabled="${client.enabled}",address="${client.address}",name="${client.name}"} ${Number(client.transferTx)}\n`;
-      wireguardReceivedBytes += `wireguard_received_bytes{interface="wg0",enabled="${client.enabled}",address="${client.address}",name="${client.name}"} ${Number(client.transferRx)}\n`;
-      wireguardLatestHandshakeSeconds += `wireguard_latest_handshake_seconds{interface="wg0",enabled="${client.enabled}",address="${client.address}",name="${client.name}"} ${client.latestHandshakeAt ? (new Date().getTime() - new Date(client.latestHandshakeAt).getTime()) / 1000 : 0}\n`;
+      wireguardSentBytes += `wireguard_sent_bytes{interface="${this.ifName}",enabled="${client.enabled}",address="${client.address}",name="${client.name}"} ${Number(client.transferTx)}\n`;
+      wireguardReceivedBytes += `wireguard_received_bytes{interface="${this.ifName}",enabled="${client.enabled}",address="${client.address}",name="${client.name}"} ${Number(client.transferRx)}\n`;
+      wireguardLatestHandshakeSeconds += `wireguard_latest_handshake_seconds{interface="${this.ifName}",enabled="${client.enabled}",address="${client.address}",name="${client.name}"} ${client.latestHandshakeAt ? (new Date().getTime() - new Date(client.latestHandshakeAt).getTime()) / 1000 : 0}\n`;
     }
 
     let returnText = '# HELP wg-easy and wireguard metrics\n';
 
     returnText += '\n# HELP wireguard_configured_peers\n';
     returnText += '# TYPE wireguard_configured_peers gauge\n';
-    returnText += `wireguard_configured_peers{interface="wg0"} ${Number(wireguardPeerCount)}\n`;
+    returnText += `wireguard_configured_peers{interface="${this.ifName}"} ${Number(wireguardPeerCount)}\n`;
 
     returnText += '\n# HELP wireguard_enabled_peers\n';
     returnText += '# TYPE wireguard_enabled_peers gauge\n';
-    returnText += `wireguard_enabled_peers{interface="wg0"} ${Number(wireguardEnabledPeersCount)}\n`;
+    returnText += `wireguard_enabled_peers{interface="${this.ifName}"} ${Number(wireguardEnabledPeersCount)}\n`;
 
     returnText += '\n# HELP wireguard_connected_peers\n';
     returnText += '# TYPE wireguard_connected_peers gauge\n';
-    returnText += `wireguard_connected_peers{interface="wg0"} ${Number(wireguardConnectedPeersCount)}\n`;
+    returnText += `wireguard_connected_peers{interface="${this.ifName}"} ${Number(wireguardConnectedPeersCount)}\n`;
 
     returnText += '\n# HELP wireguard_sent_bytes Bytes sent to the peer\n';
     returnText += '# TYPE wireguard_sent_bytes counter\n';
@@ -547,6 +591,7 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
       }
     }
     return {
+      interface: this.ifName,
       wireguard_configured_peers: Number(wireguardPeerCount),
       wireguard_enabled_peers: Number(wireguardEnabledPeersCount),
       wireguard_connected_peers: Number(wireguardConnectedPeersCount),
@@ -575,8 +620,9 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
   }
 
   __nextClientIPv4(config) {
+    const pool = this.__addressPoolPattern(config);
     for (let i = 2; i < 255; i++) {
-      const candidate = WG_DEFAULT_ADDRESS.replace('x', i);
+      const candidate = pool.replace('x', i);
       const taken = Object.values(config.clients).some((c) => c.address === candidate);
       if (!taken) return candidate;
     }
@@ -604,7 +650,7 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
         description: client.name || '',
         public_key: client.publicKey,
         private_key: client.privateKey ? client.privateKey : '',
-        tunnel: 'wg0',
+        tunnel: this.ifName,
         allowed_ips: allowedIps,
         endpoint: '',
         enabled: !!client.enabled,
@@ -613,16 +659,16 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
     return list;
   }
 
-  async getTunnelSummaries() {
+  async getTunnelSummary() {
     const config = await this.getConfig();
     const s = config.server;
     const peerCount = Object.keys(config.clients).length;
     const dnsServers = typeof WG_DEFAULT_DNS === 'string' && WG_DEFAULT_DNS.trim()
       ? WG_DEFAULT_DNS.split(',').map((x) => x.trim()).filter(Boolean)
       : [];
-    return [{
-      name: 'wg0',
-      description: 'wg0',
+    return {
+      name: this.ifName,
+      description: this.ifName,
       public_key: s.publicKey,
       address: [`${s.address}/24`],
       public_ip: WG_HOST,
@@ -641,12 +687,12 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
       },
       peer_count: peerCount,
       enabled: true,
-    }];
+    };
   }
 
   async getConnectedPeersCompat() {
     const config = await this.getConfig();
-    const dump = await Util.exec('wg show wg0 dump', {
+    const dump = await Util.exec(`wg show ${this.ifName} dump`, {
       log: false,
     });
     const lines = dump.trim().split('\n').slice(1);
@@ -654,13 +700,9 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
       Object.values(config.clients).map((c) => [c.publicKey, c]),
     );
     const peers = lines.map((line) => {
-      const [
-        publicKey,
-        ,
-        ,
-        ,
-        latestHandshakeAt,
-      ] = line.split('\t');
+      const cols = line.split('\t');
+      const publicKey = cols[0];
+      const latestHandshakeAt = cols[4];
       const client = byPub[publicKey];
       const ts = latestHandshakeAt === '0'
         ? 0
@@ -676,7 +718,7 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
       };
     });
     return [{
-      tunnel: 'wg0',
+      tunnel: this.ifName,
       peers,
       total_peers: peers.length,
     }];
@@ -695,13 +737,9 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
     return null;
   }
 
-  async syncServerTunnels(tunnels) {
-    if (!Array.isArray(tunnels) || tunnels.length === 0) {
-      throw new ServerError('Invalid or missing tunnels data', 400);
-    }
-    const spec = tunnels.find((t) => t && t.name === 'wg0') || tunnels[0];
-    if (!spec || (spec.name && spec.name !== 'wg0')) {
-      throw new ServerError('Only tunnel name "wg0" is supported in wg-easy', 400);
+  async applyCompatTunnelSpec(spec) {
+    if (!spec || spec.name !== this.ifName) {
+      throw new ServerError(`Tunnel spec name must match interface (${this.ifName})`, 400);
     }
     const config = await this.getConfig();
     const host = this.__parseTunnelServerAddress(spec);
@@ -733,15 +771,11 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
       config.server.listenPort = p;
     }
     await this.saveConfig();
-    return this.getTunnelSummaries();
   }
 
-  async mergeServerTunnelFromAdd(tunnelData, overwrite) {
-    if (!tunnelData || tunnelData.name !== 'wg0') {
-      throw new ServerError('Only tunnel name "wg0" is supported; use sync_tunnels to update the server.', 400);
-    }
-    if (!overwrite) {
-      throw new ServerError('Tunnel wg0 already exists; pass overwrite=true to update, or use sync_tunnels.', 400);
+  async mergeAddTunnelFormat(tunnelData) {
+    if (!tunnelData || tunnelData.name !== this.ifName) {
+      throw new ServerError(`Tunnel name must be ${this.ifName}`, 400);
     }
     const config = await this.getConfig();
     const host = this.__parseTunnelServerAddress({
@@ -756,16 +790,12 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
       if (p >= 1 && p <= 65535) config.server.listenPort = p;
     }
     if (tunnelData.enabled === false) {
-      throw new ServerError('Disabling wg0 is not supported in wg-easy', 400);
+      throw new ServerError(`Disabling tunnel ${this.ifName} is not supported`, 400);
     }
     await this.saveConfig();
-    return this.getTunnelSummaries();
   }
 
-  async resetTunnelObfuscation(tunnelName) {
-    if (tunnelName !== 'wg0') {
-      throw new ServerError(`Tunnel '${tunnelName}' not found`, 404);
-    }
+  async resetObfuscationAndReturnSummary() {
     const config = await this.getConfig();
     const jmin = this.__randInt(10, 300);
     config.server.jc = this.__randInt(3, 10);
@@ -780,15 +810,10 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
     config.server.h3 = this.__randInt(min, max);
     config.server.h4 = this.__randInt(min, max);
     await this.saveConfig();
-    const summaries = await this.getTunnelSummaries();
-    return summaries[0];
+    return this.getTunnelSummary();
   }
 
-  async syncPeersFromPublicKeys(peers, tunnel) {
-    const t = tunnel == null || tunnel === '' ? 'all' : tunnel;
-    if (t !== 'all' && t !== 'wg0') {
-      throw new ServerError('Invalid tunnel name (only wg0 or all)', 400);
-    }
+  async syncPeersFromPublicKeys(peers) {
     if (!Array.isArray(peers)) {
       throw new ServerError('Peers must be an array', 400);
     }
@@ -813,7 +838,6 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
         throw new ServerError('Invalid public key format', 400);
       }
       const allowedList = peer.allowed_ips || peer.allowedips;
-      let allowedIPs = '';
       if (allowedList != null) {
         if (!Array.isArray(allowedList)) {
           throw new ServerError('allowed_ips must be an array', 400);
@@ -823,7 +847,6 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
             throw new ServerError(`Invalid allowed IP format: ${cidr}`, 400);
           }
         }
-        allowedIPs = allowedList.join(', ');
       }
     }
 
@@ -843,11 +866,9 @@ Endpoint = ${WG_HOST}:${WG_CONFIG_PORT}`;
         : '';
       const enabled = peer.enabled !== false;
 
-      let existingId = null;
       let existing = null;
-      for (const [id, c] of Object.entries(config.clients)) {
+      for (const c of Object.values(config.clients)) {
         if (c.publicKey === pub) {
-          existingId = id;
           existing = c;
           break;
         }

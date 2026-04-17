@@ -91,7 +91,7 @@ async function processAmneziaCompatRequest(event, WireGuard) {
     return compatRespond(event, 400, '', 'Invalid or missing JSON input');
   }
 
-  const act = body.act;
+  const { act } = body;
   if (!act || typeof act !== 'string') {
     return compatRespond(event, 400, '', 'Invalid or missing action parameter');
   }
@@ -126,7 +126,7 @@ async function processAmneziaCompatRequest(event, WireGuard) {
           return compatRespond(event, 400, '', 'Invalid or missing peers data');
         }
         const data = await WireGuard.syncPeersFromPublicKeys(peers, 'all');
-        return compatRespond(event, 200, data, 'Peers synced successfully to all tunnels: wg0');
+        return compatRespond(event, 200, data, 'Peers synced successfully to all tunnels');
       }
       case 'sync_tunnels': {
         const tunnels = body.tunnels ?? [];
@@ -140,7 +140,10 @@ async function processAmneziaCompatRequest(event, WireGuard) {
           return compatRespond(event, 400, '', 'Invalid or missing tunnel data');
         }
         const data = await WireGuard.mergeServerTunnelFromAdd(tunnelData, overwrite);
-        return compatRespond(event, 200, data[0], 'Tunnel added successfully');
+        const row = Array.isArray(data)
+          ? (data.find((x) => x && x.name === tunnelData.name) || data[0])
+          : data;
+        return compatRespond(event, 200, row, 'Tunnel added successfully');
       }
       case 'reset_tunnel': {
         const tunnelName = body.tunnel ?? '';

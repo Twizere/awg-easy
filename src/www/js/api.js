@@ -5,6 +5,14 @@
 
 class API {
 
+  constructor() {
+    this.tunnel = 'wg0';
+  }
+
+  wgBase() {
+    return `/wireguard/${this.tunnel}`;
+  }
+
   async call({ method, path, body }) {
     const res = await fetch(`./api${path}`, {
       method,
@@ -107,10 +115,17 @@ class API {
     });
   }
 
+  async listTunnels() {
+    return this.call({
+      method: 'get',
+      path: '/wireguard/tunnel',
+    });
+  }
+
   async getClients() {
     return this.call({
       method: 'get',
-      path: '/wireguard/client',
+      path: `${this.wgBase()}/client`,
     }).then((clients) => clients.map((client) => ({
       ...client,
       createdAt: new Date(client.createdAt),
@@ -127,7 +142,7 @@ class API {
   async createClient({ name, expiredDate }) {
     return this.call({
       method: 'post',
-      path: '/wireguard/client',
+      path: `${this.wgBase()}/client`,
       body: { name, expiredDate },
     });
   }
@@ -135,35 +150,35 @@ class API {
   async deleteClient({ clientId }) {
     return this.call({
       method: 'delete',
-      path: `/wireguard/client/${clientId}`,
+      path: `${this.wgBase()}/client/${clientId}`,
     });
   }
 
   async showOneTimeLink({ clientId }) {
     return this.call({
       method: 'post',
-      path: `/wireguard/client/${clientId}/generateOneTimeLink`,
+      path: `${this.wgBase()}/client/${clientId}/generateOneTimeLink`,
     });
   }
 
   async enableClient({ clientId }) {
     return this.call({
       method: 'post',
-      path: `/wireguard/client/${clientId}/enable`,
+      path: `${this.wgBase()}/client/${clientId}/enable`,
     });
   }
 
   async disableClient({ clientId }) {
     return this.call({
       method: 'post',
-      path: `/wireguard/client/${clientId}/disable`,
+      path: `${this.wgBase()}/client/${clientId}/disable`,
     });
   }
 
   async updateClientName({ clientId, name }) {
     return this.call({
       method: 'put',
-      path: `/wireguard/client/${clientId}/name/`,
+      path: `${this.wgBase()}/client/${clientId}/name/`,
       body: { name },
     });
   }
@@ -171,7 +186,7 @@ class API {
   async updateClientAddress({ clientId, address }) {
     return this.call({
       method: 'put',
-      path: `/wireguard/client/${clientId}/address/`,
+      path: `${this.wgBase()}/client/${clientId}/address/`,
       body: { address },
     });
   }
@@ -179,16 +194,16 @@ class API {
   async updateClientExpireDate({ clientId, expireDate }) {
     return this.call({
       method: 'put',
-      path: `/wireguard/client/${clientId}/expireDate/`,
+      path: `${this.wgBase()}/client/${clientId}/expireDate/`,
       body: { expireDate },
     });
   }
 
-  async restoreConfiguration(file) {
+  async restoreConfiguration(file, tunnel) {
     return this.call({
       method: 'put',
       path: '/wireguard/restore',
-      body: { file },
+      body: { file, tunnel: tunnel || this.tunnel },
     });
   }
 

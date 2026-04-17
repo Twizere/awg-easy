@@ -93,8 +93,8 @@ new Vue({
 
     uiChartType: 0,
     avatarSettings: {
-      'dicebear': null,
-      'gravatar': false,
+      dicebear: null,
+      gravatar: false,
     },
     enableOneTimeLinks: false,
     enableSortClient: false,
@@ -102,6 +102,10 @@ new Vue({
     enableExpireTime: false,
 
     compatApi: null,
+
+    /** @type {{ name: string }[]} */
+    tunnelsList: [],
+    selectedTunnel: localStorage.getItem('wgEasyTunnel') || 'wg0',
 
     uiShowCharts: localStorage.getItem('uiShowCharts') === '1',
     uiTheme: localStorage.theme || 'auto',
@@ -204,12 +208,13 @@ new Vue({
     } = {}) {
       if (!this.authenticated) return;
 
+      this.api.tunnel = this.selectedTunnel;
       const clients = await this.api.getClients();
       this.clients = clients.map((client) => {
         if (client.name.includes('@') && client.name.includes('.') && this.avatarSettings.gravatar) {
           client.avatar = `https://gravatar.com/avatar/${sha256(client.name.toLowerCase().trim())}.jpg`;
         } else if (this.avatarSettings.dicebear) {
-          client.avatar = `https://api.dicebear.com/9.x/${this.avatarSettings.dicebear}/svg?seed=${sha256(client.name.toLowerCase().trim())}`
+          client.avatar = `https://api.dicebear.com/9.x/${this.avatarSettings.dicebear}/svg?seed=${sha256(client.name.toLowerCase().trim())}`;
         }
 
         if (!this.clientsPersist[client.id]) {
@@ -356,7 +361,7 @@ new Vue({
       if (file) {
         file.text()
           .then((content) => {
-            this.api.restoreConfiguration(content)
+            this.api.restoreConfiguration(content, this.selectedTunnel)
               .then((_result) => alert('The configuration was updated.'))
               .catch((err) => alert(err.message || err.toString()))
               .finally(() => this.refresh().catch(console.error));
@@ -365,6 +370,12 @@ new Vue({
       } else {
         alert('Failed to load your file!');
       }
+    },
+    onTunnelChange() {
+      localStorage.setItem('wgEasyTunnel', this.selectedTunnel);
+      this.api.tunnel = this.selectedTunnel;
+      this.clientsPersist = {};
+      this.refresh().catch(console.error);
     },
     toggleTheme() {
       const themes = ['light', 'dark', 'auto'];
@@ -408,15 +419,31 @@ new Vue({
     this.setTheme(this.uiTheme);
 
     this.api = new API();
+    this.api.tunnel = this.selectedTunnel;
     this.api.getSession()
       .then((session) => {
         this.authenticated = session.authenticated;
         this.requiresPassword = session.requiresPassword;
-        this.refresh({
-          updateCharts: this.updateCharts,
-        }).catch((err) => {
-          alert(err.message || err.toString());
-        });
+        return this.api.listTunnels()
+          .then((list) => {
+            this.tunnelsList = Array.isArray(list) ? list : [];
+            const saved = localStorage.getItem('wgEasyTunnel');
+            if (saved && this.tunnelsList.some((x) => x.name === saved)) {
+              this.selectedTunnel = saved;
+            } else if (this.tunnelsList.length && this.tunnelsList[0].name) {
+              this.selectedTunnel = this.tunnelsList[0].name;
+            }
+            this.api.tunnel = this.selectedTunnel;
+          })
+          .catch(() => {
+            this.tunnelsList = [{ name: 'wg0' }];
+          })
+          .then(() => this.refresh({
+            updateCharts: this.updateCharts,
+          }))
+          .catch((err) => {
+            alert(err.message || err.toString());
+          });
       })
       .catch((err) => {
         alert(err.message || err.toString());
@@ -478,10 +505,10 @@ new Vue({
         this.avatarSettings = res;
       })
       .catch(() => {
-          this.avatarSettings = {
-            'dicebear': null,
-            'gravatar': false,
-          };
+        this.avatarSettings = {
+          dicebear: null,
+          gravatar: false,
+        };
       });
 
     this.api.getCompatApiStatus()

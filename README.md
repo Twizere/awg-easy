@@ -22,6 +22,7 @@ You have found the easiest way to install & manage WireGuard on any Linux host!
 * One Time Links (default off)
 * Client Expiry (default off)
 * Prometheus metrics support
+* **Multiple WireGuard tunnels** (separate kernel interfaces, e.g. `wg0` + `wg1`): one JSON + `.conf` per interface under `WG_PATH`, optional `WG_TUNNELS` for defaults, Web UI tunnel switcher, and pfSense-style API on all tunnels.
 
 ## Requirements
 
@@ -90,7 +91,8 @@ These options can be configured by setting environment variables using `-e KEY="
 | `PASSWORD_HASH`               | -                 | `$2y$05$Ci...`                 | When set, requires a password when logging in to the Web UI. See [How to generate an bcrypt hash.md]("https://github.com/wg-easy/wg-easy/blob/master/How_to_generate_an_bcrypt_hash.md") for know how generate the hash. |
 | `WG_HOST`                     | -                 | `vpn.myserver.com`             | The public hostname of your VPN server.                                                                                                                                                                                  |
 | `WG_DEVICE`                   | `eth0`            | `ens6f0`                       | Ethernet device the wireguard traffic should be forwarded through.                                                                                                                                                       |
-| `WG_PORT`                     | `51820`           | `12345`                        | The public UDP port of your VPN server. WireGuard will listen on that (othwise default) inside the Docker container.                                                                                                     |
+| `WG_PORT`                     | `51820`           | `12345`                        | Default UDP listen port when a tunnel JSON has no `server.listenPort` (typically `wg0`).                                                                                                                                 |
+| `WG_TUNNELS`                  | *(empty)*         | `wg0,wg1` or `wg0:51820,wg1:51821` | Optional list of interface names to bring up on start. Names without `:port` get sequential UDP ports starting at `WG_PORT`. Merged with tunnel JSON files found under `WG_PATH`.                                   |
 | `WG_CONFIG_PORT`              | `51820`           | `12345`                        | The UDP port used on [Home Assistant Plugin](https://github.com/adriy-be/homeassistant-addons-jdeath/tree/main/wgeasy)                                                                                                   |
 | `WG_MTU`                      | `null`            | `1420`                         | The MTU the clients will use. Server uses default WG MTU.                                                                                                                                                                |
 | `WG_PERSISTENT_KEEPALIVE`     | `0`               | `25`                           | Value in seconds to keep the "connection" open. If this value is 0, then connections won't be kept alive.                                                                                                                |
@@ -98,7 +100,7 @@ These options can be configured by setting environment variables using `-e KEY="
 | `WG_DEFAULT_DNS`              | `1.1.1.1`         | `8.8.8.8, 8.8.4.4`             | DNS server clients will use. If set to blank value, clients will not use any DNS.                                                                                                                                        |
 | `WG_ALLOWED_IPS`              | `0.0.0.0/0, ::/0` | `192.168.15.0/24, 10.0.1.0/24` | Allowed IPs clients will use.                                                                                                                                                                                            |
 | `WG_PRE_UP`                   | `...`             | -                              | See [config.js](https://github.com/wg-easy/wg-easy/blob/master/src/config.js#L19) for the default value.                                                                                                                 |
-| `WG_POST_UP`                  | `...`             | `iptables ...`                 | See [config.js](https://github.com/wg-easy/wg-easy/blob/master/src/config.js#L20) for the default value.                                                                                                                 |
+| `WG_POST_UP`                  | `...`             | `iptables ...`                 | Default snippets use `{INTERFACE}`, `{LISTEN_PORT}`, and `{SERVER_SUBNET}` (expanded per tunnel when writing each `.conf`). Override with your own rules if needed.                                                      |
 | `WG_PRE_DOWN`                 | `...`             | -                              | See [config.js](https://github.com/wg-easy/wg-easy/blob/master/src/config.js#L27) for the default value.                                                                                                                 |
 | `WG_POST_DOWN`                | `...`             | `iptables ...`                 | See [config.js](https://github.com/wg-easy/wg-easy/blob/master/src/config.js#L28) for the default value.                                                                                                                 |
 | `WG_ENABLE_EXPIRES_TIME`      | `false`           | `true`                         | Enable expire time for clients                                                                                                                                                                                           |
@@ -126,20 +128,29 @@ These options can be configured by setting environment variables using `-e KEY="
 | `H3`                          | `random`          | `1234567893`                   | Underload packet magic header — UnderLoad packet header. Must be < uint_max.                                                                                                                                             |
 | `H4`                          | `random`          | `1234567894`                   | Transport packet magic header — header of the packet of the data packet. Must be < uint_max.                                                                                                                             |
 
-> If you change `WG_PORT`, make sure to also change the exposed port.
+> If you change `WG_PORT`, make sure to also change the exposed port. For **more than one tunnel**, publish **one host UDP port per tunnel** (each tunnel’s `ListenPort` in its JSON / `WG_TUNNELS`).
+
+### Multiple tunnels (quick reference)
+
+* **On disk:** `{WG_PATH}/{ifName}.json` and `{ifName}.conf` (e.g. `wg0.json`, `wg1.json`). Legacy installs with only `wg0.json` behave as before.
+* **Subnets:** each tunnel should use a **non-overlapping** `/24` (server address drives the client pool, e.g. `10.8.0.1` → clients `10.8.0.x`; a new tunnel picks the next free third octet when created).
+* **Web UI:** tunnel dropdown when more than one tunnel exists; API paths `/api/wireguard/{tunnel}/client/...` (legacy `/api/wireguard/client/...` stays on **`wg0`**).
+* **Backup:** `GET /api/wireguard/backup?tunnel=wg0` (default), `?tunnel=all` for a single JSON file with `{ "_format": "...", "tunnels": { "wg0": {...}, "wg1": {...} } }`. Restore that file via **`PUT /api/wireguard/restore`**; the server detects the multi-tunnel format and restores every listed tunnel.
+
+**Docker / Compose:** map every UDP port WireGuard listens on, for example `-p 51820:51820/udp -p 51821:51821/udp` when `wg1` uses `51821`, in addition to the Web UI TCP port (`PORT`).
 
 ## pfSense-style external API
 
-This project uses a **single** WireGuard interface (`wg0`). The optional compatibility layer mirrors a typical AmneziaWG **pfSense** JSON API: JSON body with an `act` field, JSON responses with optional `data` and `message`, and automation auth via **`X-API-Key`** (not the Web UI bcrypt password).
+The optional compatibility layer mirrors a typical AmneziaWG **pfSense** JSON API: JSON body with an `act` field, JSON responses with optional `data` and `message`, and automation auth via **`X-API-Key`** (not the Web UI bcrypt password). It operates on **real interface names** (`wg0`, `wg1`, …) discovered from `WG_PATH` and `WG_TUNNELS`.
 
 ### Model mapping
 
 | pfSense / multi-tunnel | amnezia-wg-easy |
 |------------------------|-----------------|
-| Multiple tunnels       | One logical tunnel **`wg0`**. `get_tunnels` returns a one-element list. |
-| Peers per tunnel       | All peers belong to **`wg0`**. Incoming `tunnel` must be `wg0`, `all`, or omitted. |
-| `sync_peers`           | Matches peers by **`public_key`**. New peers get an auto-assigned IPv4 from `WG_DEFAULT_ADDRESS`. **`privateKey` is not required** on the server; those clients cannot export a full `.conf` until keys are added in the UI. |
-| Listen UDP port        | Defaults from **`WG_PORT`**. `sync_tunnels` / `add_tunnel` may set **`listenPort` in `wg0.json`** (`server.listenPort`) to override what is written into `wg0.conf`. |
+| Multiple tunnels       | One row per interface in `get_tunnels`. Names are Linux interface names (max 15 chars: letters, digits, `_`, `-`). |
+| Peers per tunnel       | Each tunnel has its own `clients` map in `{ifName}.json`. `sync_peers` with **`tunnel: "all"`** applies the same peer list to **every** tunnel (each gets addresses from its own pool). |
+| `sync_peers`           | Matches peers by **`public_key`**. New peers get an auto-assigned IPv4 from that tunnel’s pool. **`privateKey` is not required** on the server for API-created peers. |
+| Listen UDP port        | Per tunnel: `server.listenPort` in JSON, else **`WG_TUNNELS`** / **`WG_PORT`** defaults. `sync_tunnels` / `add_tunnel` can set listen port and server address. |
 
 ### Endpoints
 
@@ -151,14 +162,14 @@ This project uses a **single** WireGuard interface (`wg0`). The optional compati
 
 | `act` | Description |
 |-------|-------------|
-| `get_peers` | List clients in pfSense-like shape (`public_key`, `allowed_ips`, `tunnel: "wg0"`, …). |
-| `get_tunnels` | One tunnel summary for `wg0` (Amnezia `jc`/`jmin`/…, addresses, `listen_port`). |
-| `get_connected_peers` | Handshake-oriented view grouped under `wg0`. |
-| `sync_peers` | Body: `peers` (array), optional `tunnel` (`all` / `wg0`). Replaces the client set to match the list (empty `peers` clears all). Each peer: `public_key`, `description`, optional `allowed_ips` (CIDR strings), optional `enabled`. |
+| `get_peers` | List clients in pfSense-like shape (`public_key`, `allowed_ips`, `tunnel` = interface name, …). |
+| `get_tunnels` | One summary per tunnel (Amnezia `jc`/`jmin`/…, addresses, `listen_port`). |
+| `get_connected_peers` | Per-tunnel blocks with `tunnel`, `peers`, `total_peers`. |
+| `sync_peers` | Body: `peers` (array), optional `tunnel` (`all` or a specific interface, e.g. `wg1`). Replaces the client set on the chosen tunnel(s) to match the list (empty `peers` clears). Each peer: `public_key`, `description`, optional `allowed_ips`, optional `enabled`. |
 | `sync_peers_all` | Same as `sync_peers` with tunnel `all`. |
-| `sync_tunnels` | Body: `tunnels` (array). Only **`name: "wg0"`** (or a single tunnel object) is supported; updates server address and Amnezia parameters from `config` / `address` / `listen_port`. |
-| `add_tunnel` | Body: `tunnel` (must include `name: "wg0"`), optional `overwrite`. Without **`overwrite: true`**, returns an error because `wg0` already exists. With overwrite, merges addresses / listen port into the server section. |
-| `reset_tunnel` | Body: `tunnel: "wg0"`. Regenerates random Amnezia obfuscation fields on the server. |
+| `sync_tunnels` | Body: `tunnels` (array). Each element **`name`** must match the target interface; updates server address and Amnezia parameters from `config` / `address` / `listen_port`. |
+| `add_tunnel` | Body: `tunnel` object with **`name`** (interface), optional `overwrite`. If the JSON file already exists and `overwrite` is not `true`, returns an error. |
+| `reset_tunnel` | Body: `tunnel` = interface name. Regenerates random Amnezia obfuscation fields for that tunnel. |
 
 ### Example
 

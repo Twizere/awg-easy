@@ -11,6 +11,8 @@ services:
       - etc_wireguard:/etc/wireguard
     ports:
       - "${WG_PORT}:${WG_PORT}/udp"
+      # Extra UDP mappings per tunnel listen port (when using WG_TUNNELS / multiple interfaces), e.g.:
+      # - "51821:51821/udp"
       - "${PORT}:${PORT}/tcp"
     restart: unless-stopped
     cap_add:

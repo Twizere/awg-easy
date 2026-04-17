@@ -13,6 +13,7 @@ const fs = require('node:fs');
   for (const envPath of candidates) {
     try {
       if (fs.existsSync(envPath)) {
+        // eslint-disable-next-line global-require
         require('dotenv').config({ path: envPath });
         break;
       }
@@ -34,6 +35,8 @@ module.exports.WG_DEVICE = process.env.WG_DEVICE || 'eth0';
 module.exports.WG_HOST = process.env.WG_HOST;
 module.exports.WG_PORT = process.env.WG_PORT || '51820';
 module.exports.WG_CONFIG_PORT = process.env.WG_CONFIG_PORT || process.env.WG_PORT || '51820';
+/** Comma-separated tunnels: `wg0,wg1` or explicit ports `wg0:51820,wg1:51821`. Used for default ListenPort when not set in each tunnel JSON. */
+module.exports.WG_TUNNELS = process.env.WG_TUNNELS || '';
 module.exports.WG_MTU = process.env.WG_MTU || null;
 module.exports.WG_PERSISTENT_KEEPALIVE = process.env.WG_PERSISTENT_KEEPALIVE || '0';
 module.exports.WG_DEFAULT_ADDRESS = process.env.WG_DEFAULT_ADDRESS || '10.8.0.x';
@@ -44,18 +47,18 @@ module.exports.WG_ALLOWED_IPS = process.env.WG_ALLOWED_IPS || '0.0.0.0/0, ::/0';
 
 module.exports.WG_PRE_UP = process.env.WG_PRE_UP || '';
 module.exports.WG_POST_UP = process.env.WG_POST_UP || `
-iptables -t nat -A POSTROUTING -s ${module.exports.WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -o ${module.exports.WG_DEVICE} -j MASQUERADE;
-iptables -A INPUT -p udp -m udp --dport ${module.exports.WG_PORT} -j ACCEPT;
-iptables -A FORWARD -i wg0 -j ACCEPT;
-iptables -A FORWARD -o wg0 -j ACCEPT;
+iptables -t nat -A POSTROUTING -s {SERVER_SUBNET} -o ${module.exports.WG_DEVICE} -j MASQUERADE;
+iptables -A INPUT -p udp -m udp --dport {LISTEN_PORT} -j ACCEPT;
+iptables -A FORWARD -i {INTERFACE} -j ACCEPT;
+iptables -A FORWARD -o {INTERFACE} -j ACCEPT;
 `.split('\n').join(' ');
 
 module.exports.WG_PRE_DOWN = process.env.WG_PRE_DOWN || '';
 module.exports.WG_POST_DOWN = process.env.WG_POST_DOWN || `
-iptables -t nat -D POSTROUTING -s ${module.exports.WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -o ${module.exports.WG_DEVICE} -j MASQUERADE;
-iptables -D INPUT -p udp -m udp --dport ${module.exports.WG_PORT} -j ACCEPT;
-iptables -D FORWARD -i wg0 -j ACCEPT;
-iptables -D FORWARD -o wg0 -j ACCEPT;
+iptables -t nat -D POSTROUTING -s {SERVER_SUBNET} -o ${module.exports.WG_DEVICE} -j MASQUERADE;
+iptables -D INPUT -p udp -m udp --dport {LISTEN_PORT} -j ACCEPT;
+iptables -D FORWARD -i {INTERFACE} -j ACCEPT;
+iptables -D FORWARD -o {INTERFACE} -j ACCEPT;
 `.split('\n').join(' ');
 module.exports.LANG = process.env.LANG || 'en';
 module.exports.UI_TRAFFIC_STATS = process.env.UI_TRAFFIC_STATS || 'false';
@@ -107,3 +110,36 @@ module.exports.H1 = process.env.H1 || getRandomHeader();
 module.exports.H2 = process.env.H2 || getRandomHeader();
 module.exports.H3 = process.env.H3 || getRandomHeader();
 module.exports.H4 = process.env.H4 || getRandomHeader();
+
+(function buildWgTunnelDefaultListenPorts() {
+  const raw = module.exports.WG_TUNNELS;
+  const out = {};
+  module.exports.WG_TUNNEL_DEFAULT_LISTEN_PORT = out;
+  if (!raw || typeof raw !== 'string') return;
+
+  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const namesNeedingPort = [];
+  const base = parseInt(module.exports.WG_PORT, 10);
+  const basePort = Number.isFinite(base) && base > 0 ? base : 51820;
+
+  for (const part of parts) {
+    if (part.includes(':')) {
+      const [n, p] = part.split(':').map((x) => x.trim());
+      if (/^[a-zA-Z0-9_-]{1,15}$/.test(n) && p) out[n] = String(p);
+    } else if (/^[a-zA-Z0-9_-]{1,15}$/.test(part)) {
+      namesNeedingPort.push(part);
+    }
+  }
+
+  const usedPorts = new Set(
+    Object.values(out).map((x) => parseInt(String(x), 10)).filter((n) => Number.isFinite(n)),
+  );
+  let next = basePort;
+  for (const n of namesNeedingPort) {
+    if (out[n]) continue;
+    while (usedPorts.has(next)) next += 1;
+    out[n] = String(next);
+    usedPorts.add(next);
+    next += 1;
+  }
+}());

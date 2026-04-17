@@ -1,5 +1,5 @@
 'use strict';
 
-const WireGuard = require('../lib/WireGuard');
+const TunnelRegistry = require('../lib/TunnelRegistry');
 
-module.exports = new WireGuard();
+module.exports = new TunnelRegistry();

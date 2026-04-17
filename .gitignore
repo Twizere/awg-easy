@@ -1,7 +1,38 @@
-/config
-/wg0.conf
-/wg0.json
-/src/node_modules
+# --- Dependencies ---
+node_modules/
+
+# --- Secrets & local env (commit `.env.example` instead) ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- WireGuard / Docker local state ---
+# Docker bind mount (see root package.json `start` / `sudostart`)
+/config/
+config/
+
+# Root-level legacy single-tunnel files (before per-tunnel layout)
+/wg*.json
+/wg*.conf
+
+# Writable WG_PATH overrides used for local `node server.js` runs
+.wg-data/
+.wg-run/
+
+# --- OS & editors ---
 .DS_Store
+Thumbs.db
+.idea/
 *.swp
-.idea
+*.swo
+*.code-workspace
+.vscode/
+*.sublime-*
+
+# --- Logs & caches ---
+*.log
+npm-debug.log*
+.eslintcache
+.npm
+.yarn/

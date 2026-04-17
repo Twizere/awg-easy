@@ -4,6 +4,11 @@ const childProcess = require('child_process');
 
 module.exports = class Util {
 
+  /** Linux interface name: max 15 chars, alphanumeric, underscore, hyphen. */
+  static isValidTunnelInterfaceName(name) {
+    return typeof name === 'string' && /^[a-zA-Z0-9_-]{1,15}$/.test(name);
+  }
+
   static isValidIPv4(str) {
     const blocks = str.split('.');
     if (blocks.length !== 4) return false;
