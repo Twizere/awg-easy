@@ -101,6 +101,8 @@ new Vue({
     sortClient: true, // Sort clients by name, true = asc, false = desc
     enableExpireTime: false,
 
+    compatApi: null,
+
     uiShowCharts: localStorage.getItem('uiShowCharts') === '1',
     uiTheme: localStorage.theme || 'auto',
     prefersDarkScheme: window.matchMedia('(prefers-color-scheme: dark)'),
@@ -480,6 +482,14 @@ new Vue({
             'dicebear': null,
             'gravatar': false,
           };
+      });
+
+    this.api.getCompatApiStatus()
+      .then((res) => {
+        this.compatApi = res;
+      })
+      .catch(() => {
+        this.compatApi = null;
       });
 
     Promise.resolve().then(async () => {

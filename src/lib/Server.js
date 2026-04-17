@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const basicAuth = require('basic-auth');
 const { createServer } = require('node:http');
 const { stat, readFile } = require('node:fs/promises');
-const { resolve, sep } = require('node:path');
+const { resolve, sep, join } = require('node:path');
 
 const expressSession = require('express-session');
 const debug = require('debug')('Server');
@@ -41,7 +41,13 @@ const {
   PROMETHEUS_METRICS_PASSWORD,
   DICEBEAR_TYPE,
   USE_GRAVATAR,
+  AMNEZIA_API_BASE_PATH,
 } = require('../config');
+
+const {
+  getCompatApiStatus,
+  processAmneziaCompatRequest,
+} = require('./amneziaCompatApi');
 
 const requiresPassword = !!PASSWORD_HASH;
 const requiresPrometheusPassword = !!PROMETHEUS_METRICS_PASSWORD;
@@ -191,11 +197,43 @@ module.exports = class Server {
         debug(`New Session: ${event.node.req.session.id}`);
 
         return { success: true };
+      }))
+
+      .get('/api/compat/status', defineEventHandler((event) => {
+        setHeader(event, 'Content-Type', 'application/json');
+        return getCompatApiStatus();
+      }))
+      .post('/api/compat/amnezia', defineEventHandler(async (event) => {
+        return processAmneziaCompatRequest(event, WireGuard);
       }));
+
+    if (AMNEZIA_API_BASE_PATH) {
+      router
+        .get(`${AMNEZIA_API_BASE_PATH}/status`, defineEventHandler((event) => {
+          setHeader(event, 'Content-Type', 'application/json');
+          return getCompatApiStatus();
+        }))
+        .post(AMNEZIA_API_BASE_PATH, defineEventHandler(async (event) => {
+          return processAmneziaCompatRequest(event, WireGuard);
+        }))
+        .post(`${AMNEZIA_API_BASE_PATH}/`, defineEventHandler(async (event) => {
+          return processAmneziaCompatRequest(event, WireGuard);
+        }));
+    }
 
     // WireGuard
     app.use(
       fromNodeMiddleware((req, res, next) => {
+        const pathOnly = (req.url || '').split('?')[0];
+        if (pathOnly.startsWith('/api/compat/')) {
+          return next();
+        }
+        if (AMNEZIA_API_BASE_PATH && (
+          pathOnly === AMNEZIA_API_BASE_PATH
+          || pathOnly.startsWith(`${AMNEZIA_API_BASE_PATH}/`)
+        )) {
+          return next();
+        }
         if (!requiresPassword || !req.url.startsWith('/api/')) {
           return next();
         }
@@ -406,8 +444,8 @@ module.exports = class Server {
         return { success: true };
       }));
 
-    // Static assets
-    const publicDir = '/app/www';
+    // Static assets (Docker: /app/www via join(__dirname, '..', 'www'); override with WWW_PATH)
+    const publicDir = process.env.WWW_PATH || join(__dirname, '..', 'www');
     app.use(
       defineEventHandler((event) => {
         return serveStatic(event, {

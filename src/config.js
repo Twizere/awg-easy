@@ -1,5 +1,27 @@
 'use strict';
 
+const path = require('node:path');
+const fs = require('node:fs');
+
+(() => {
+  const explicit = process.env.DOTENV_CONFIG_PATH;
+  const candidates = [
+    explicit && path.isAbsolute(explicit) ? explicit : explicit && path.join(process.cwd(), explicit),
+    path.join(__dirname, '..', '.env'),
+    path.join(process.cwd(), '.env'),
+  ].filter(Boolean);
+  for (const envPath of candidates) {
+    try {
+      if (fs.existsSync(envPath)) {
+        require('dotenv').config({ path: envPath });
+        break;
+      }
+    } catch {
+      /* ignore optional dotenv */
+    }
+  }
+})();
+
 const { release: { version } } = require('./package.json');
 
 module.exports.RELEASE = version;
@@ -46,6 +68,31 @@ module.exports.PROMETHEUS_METRICS_PASSWORD = process.env.PROMETHEUS_METRICS_PASS
 
 module.exports.DICEBEAR_TYPE = process.env.DICEBEAR_TYPE || false;
 module.exports.USE_GRAVATAR = process.env.USE_GRAVATAR || false;
+
+/** pfSense-style compat API: set to "true" to expose POST /api/compat/amnezia */
+module.exports.AMNEZIA_API_ENABLED = process.env.AMNEZIA_API_ENABLED === 'true';
+/** Required when AMNEZIA_API_ENABLED and AMNEZIA_API_AUTH=apikey */
+module.exports.AMNEZIA_API_KEY = process.env.AMNEZIA_API_KEY || '';
+/** "apikey" (default) or "none" — "none" allows requests without X-API-Key (insecure) */
+module.exports.AMNEZIA_API_AUTH = process.env.AMNEZIA_API_AUTH || 'apikey';
+
+function normalizeCompatApiBasePath(raw) {
+  if (raw == null || typeof raw !== 'string') return '';
+  let s = raw.trim();
+  if (!s) return '';
+  if (!s.startsWith('/')) s = `/${s}`;
+  s = s.replace(/\/+$/, '');
+  return s || '';
+}
+
+/** Optional alternate URL prefix, e.g. `/awg/api` → POST `/awg/api` and GET `/awg/api/status` (default routes stay on `/api/compat/…`). */
+module.exports.AMNEZIA_API_BASE_PATH = normalizeCompatApiBasePath(process.env.AMNEZIA_API_BASE_PATH || '');
+module.exports.AMNEZIA_COMPAT_STATUS_PATH = module.exports.AMNEZIA_API_BASE_PATH
+  ? `${module.exports.AMNEZIA_API_BASE_PATH}/status`
+  : '/api/compat/status';
+module.exports.AMNEZIA_COMPAT_POST_PATH = module.exports.AMNEZIA_API_BASE_PATH
+  ? module.exports.AMNEZIA_API_BASE_PATH
+  : '/api/compat/amnezia';
 
 const getRandomInt = (min, max) => min + Math.floor(Math.random() * (max - min));
 const getRandomJunkSize = () => getRandomInt(15, 150);

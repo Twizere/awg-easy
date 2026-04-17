@@ -27,6 +27,8 @@ You have found the easiest way to install & manage WireGuard on any Linux host!
 
 * A host with Docker installed.
 
+When you run the app with **`node server.js` from the `src/` folder**, variables in the **repository root `.env`** are loaded automatically (via `dotenv` in [`src/config.js`](src/config.js)). Docker Compose still uses `env_file: .env` as before; variables set in the shell or compose override the file where they conflict.
+
 ## Installation
 
 ### 1. Install Docker
@@ -84,6 +86,7 @@ These options can be configured by setting environment variables using `-e KEY="
 |-------------------------------|-------------------|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `PORT`                        | `51821`           | `6789`                         | TCP port for Web UI.                                                                                                                                                                                                     |
 | `WEBUI_HOST`                  | `0.0.0.0`         | `localhost`                    | IP address web UI binds to.                                                                                                                                                                                              |
+| `WWW_PATH`                    | *(auto)*          | `/var/www/wg`                  | Directory of the static Web UI (`index.html`, `js/`, …). Default: next to `lib/Server.js` (`www/` under `src/`). Set this if you run the app from a custom layout.                                                       |
 | `PASSWORD_HASH`               | -                 | `$2y$05$Ci...`                 | When set, requires a password when logging in to the Web UI. See [How to generate an bcrypt hash.md]("https://github.com/wg-easy/wg-easy/blob/master/How_to_generate_an_bcrypt_hash.md") for know how generate the hash. |
 | `WG_HOST`                     | -                 | `vpn.myserver.com`             | The public hostname of your VPN server.                                                                                                                                                                                  |
 | `WG_DEVICE`                   | `eth0`            | `ens6f0`                       | Ethernet device the wireguard traffic should be forwarded through.                                                                                                                                                       |
@@ -109,6 +112,10 @@ These options can be configured by setting environment variables using `-e KEY="
 | `UI_ENABLE_SORT_CLIENTS`      | `false`           | `true`                         | Enable UI sort clients by name                                                                                                                                                                                           |
 | `ENABLE_PROMETHEUS_METRICS`   | `false`           | `true`                         | Enable Prometheus metrics `http://0.0.0.0:51821/metrics` and `http://0.0.0.0:51821/metrics/json`                                                                                                                         |
 | `PROMETHEUS_METRICS_PASSWORD` | -                 | `$2y$05$Ci...`                 | If set, Basic Auth is required when requesting metrics. See [How to generate an bcrypt hash.md]("https://github.com/wg-easy/wg-easy/blob/master/How_to_generate_an_bcrypt_hash.md") for know how generate the hash.      |
+| `AMNEZIA_API_ENABLED`         | `false`           | `true`                         | Enables the pfSense-style JSON management API (`POST /api/compat/amnezia`). Separate from the Web UI password.                                                                                                            |
+| `AMNEZIA_API_KEY`             | -                 | `long-random-secret`           | Required when the API is enabled and `AMNEZIA_API_AUTH=apikey`. Send as HTTP header `X-API-Key`.                                                                                                                         |
+| `AMNEZIA_API_AUTH`            | `apikey`          | `none`                         | `apikey`: require `X-API-Key`. `none`: no key (insecure; use only on trusted networks).                                                                                                                                   |
+| `AMNEZIA_API_BASE_PATH`       | *(empty)*         | `/awg/api`                     | Optional extra mount: `POST` that path (and `POST …/` ) plus `GET …/status`. Default `POST /api/compat/amnezia` always remains. Useful behind reverse proxies that expect a fixed prefix.                                |
 | `JC`                          | `random`          | `5`                            | Junk packet count — number of packets with random data that are sent before the start of the session.                                                                                                                    |
 | `JMIN`                        | `50`              | `25`                           | Junk packet minimum size — minimum packet size for Junk packet. That is, all randomly generated packets will have a size no smaller than Jmin.                                                                           |
 | `JMAX`                        | `1000`            | `250`                          | Junk packet maximum size — maximum size for Junk packets.                                                                                                                                                                |
@@ -120,6 +127,47 @@ These options can be configured by setting environment variables using `-e KEY="
 | `H4`                          | `random`          | `1234567894`                   | Transport packet magic header — header of the packet of the data packet. Must be < uint_max.                                                                                                                             |
 
 > If you change `WG_PORT`, make sure to also change the exposed port.
+
+## pfSense-style external API
+
+This project uses a **single** WireGuard interface (`wg0`). The optional compatibility layer mirrors a typical AmneziaWG **pfSense** JSON API: JSON body with an `act` field, JSON responses with optional `data` and `message`, and automation auth via **`X-API-Key`** (not the Web UI bcrypt password).
+
+### Model mapping
+
+| pfSense / multi-tunnel | amnezia-wg-easy |
+|------------------------|-----------------|
+| Multiple tunnels       | One logical tunnel **`wg0`**. `get_tunnels` returns a one-element list. |
+| Peers per tunnel       | All peers belong to **`wg0`**. Incoming `tunnel` must be `wg0`, `all`, or omitted. |
+| `sync_peers`           | Matches peers by **`public_key`**. New peers get an auto-assigned IPv4 from `WG_DEFAULT_ADDRESS`. **`privateKey` is not required** on the server; those clients cannot export a full `.conf` until keys are added in the UI. |
+| Listen UDP port        | Defaults from **`WG_PORT`**. `sync_tunnels` / `add_tunnel` may set **`listenPort` in `wg0.json`** (`server.listenPort`) to override what is written into `wg0.conf`. |
+
+### Endpoints
+
+- **`GET /api/compat/status`** — Public. Returns `{ enabled, auth, endpoint, statusPath }` (no secrets). `endpoint` / `statusPath` reflect `AMNEZIA_API_BASE_PATH` when set.
+- **`POST /api/compat/amnezia`** — JSON body. If `AMNEZIA_API_ENABLED=true` and `AMNEZIA_API_AUTH=apikey`, send header **`X-API-Key: <AMNEZIA_API_KEY>`**.
+- If **`AMNEZIA_API_BASE_PATH=/awg/api`** (example): also **`POST /awg/api`**, **`POST /awg/api/`**, and **`GET /awg/api/status`** — same behavior as the `/api/compat/…` routes (so a browser `GET` of the POST-only URL no longer hits the static file handler with 405).
+
+### `act` values
+
+| `act` | Description |
+|-------|-------------|
+| `get_peers` | List clients in pfSense-like shape (`public_key`, `allowed_ips`, `tunnel: "wg0"`, …). |
+| `get_tunnels` | One tunnel summary for `wg0` (Amnezia `jc`/`jmin`/…, addresses, `listen_port`). |
+| `get_connected_peers` | Handshake-oriented view grouped under `wg0`. |
+| `sync_peers` | Body: `peers` (array), optional `tunnel` (`all` / `wg0`). Replaces the client set to match the list (empty `peers` clears all). Each peer: `public_key`, `description`, optional `allowed_ips` (CIDR strings), optional `enabled`. |
+| `sync_peers_all` | Same as `sync_peers` with tunnel `all`. |
+| `sync_tunnels` | Body: `tunnels` (array). Only **`name: "wg0"`** (or a single tunnel object) is supported; updates server address and Amnezia parameters from `config` / `address` / `listen_port`. |
+| `add_tunnel` | Body: `tunnel` (must include `name: "wg0"`), optional `overwrite`. Without **`overwrite: true`**, returns an error because `wg0` already exists. With overwrite, merges addresses / listen port into the server section. |
+| `reset_tunnel` | Body: `tunnel: "wg0"`. Regenerates random Amnezia obfuscation fields on the server. |
+
+### Example
+
+```bash
+curl -sS -X POST "http://127.0.0.1:51821/api/compat/amnezia" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_AMNEZIA_API_KEY" \
+  -d '{"act":"get_peers"}'
+```
 
 ## Updating
 

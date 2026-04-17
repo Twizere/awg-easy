@@ -199,4 +199,11 @@ class API {
     });
   }
 
+  async getCompatApiStatus() {
+    return this.call({
+      method: 'get',
+      path: '/compat/status',
+    });
+  }
+
 }

@@ -73,6 +73,19 @@
           </div>
         </div>
         <div class="text-sm text-gray-400 dark:text-neutral-400 mb-5"></div>
+        <div v-if="compatApi"
+          class="mb-6 p-4 rounded-lg border border-gray-200 dark:border-neutral-600 bg-gray-50 dark:bg-neutral-900 text-sm text-gray-700 dark:text-neutral-300">
+          <p class="font-medium text-gray-900 dark:text-neutral-100 mb-2">External API (pfSense-compatible)</p>
+          <p class="mb-1">Status: <span class="font-mono">{{ compatApi.enabled ? 'enabled' : 'disabled' }}</span>
+            <span v-if="compatApi.enabled"> · Auth: <span class="font-mono">{{ compatApi.auth }}</span></span>
+          </p>
+          <p v-if="compatApi.enabled" class="mb-1">Automation: <code class="text-xs bg-gray-200 dark:bg-neutral-800 px-1 rounded">POST {{ compatApi.endpoint }}</code> with <code class="text-xs bg-gray-200 dark:bg-neutral-800 px-1 rounded">X-API-Key</code> and JSON <code class="text-xs bg-gray-200 dark:bg-neutral-800 px-1 rounded">act</code> (see README).</p>
+          <p v-if="compatApi.enabled && compatApi.endpoint !== '/api/compat/amnezia'" class="mb-1 text-xs text-gray-500 dark:text-neutral-500">Also: <code class="bg-gray-200 dark:bg-neutral-800 px-1 rounded">GET {{ compatApi.statusPath }}</code> · this panel calls <code class="bg-gray-200 dark:bg-neutral-800 px-1 rounded">/api/compat/status</code>.</p>
+          <p v-else class="text-gray-500 dark:text-neutral-500 space-y-1">
+            <span class="block">To enable: set <code class="text-xs bg-gray-200 dark:bg-neutral-800 px-1 rounded">AMNEZIA_API_ENABLED=true</code> and a strong <code class="text-xs bg-gray-200 dark:bg-neutral-800 px-1 rounded">AMNEZIA_API_KEY</code> (same values as in your <code class="text-xs bg-gray-200 dark:bg-neutral-800 px-1 rounded">.env</code> or Docker <code class="text-xs bg-gray-200 dark:bg-neutral-800 px-1 rounded">-e</code> flags), then <strong>restart</strong> the UI process so it reloads the environment.</span>
+            <span class="block text-xs mt-1">Example Docker: <code class="bg-gray-200 dark:bg-neutral-800 px-1 rounded">-e AMNEZIA_API_ENABLED=true -e AMNEZIA_API_KEY=your-secret</code></span>
+          </p>
+        </div>
         <div v-if="latestRelease"
           class="bg-red-800 dark:bg-red-100 p-4 text-white dark:text-red-600 text-sm font-small mb-10 rounded-md shadow-lg"
           :title="`v${currentRelease} → v${latestRelease.version}`">
