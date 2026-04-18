@@ -222,16 +222,32 @@ module.exports = class Server {
         setHeader(event, 'Content-Type', 'application/json');
         return getCompatApiStatus();
       }))
+      .get('/api/compat/amnezia', defineEventHandler((event) => {
+        setHeader(event, 'Content-Type', 'application/json');
+        return {
+          message: 'This URL accepts POST only (JSON body with "act"). Opening it in a browser sends GET, which used to return 405.',
+          ...getCompatApiStatus(),
+        };
+      }))
       .post('/api/compat/amnezia', defineEventHandler(async (event) => {
         return processAmneziaCompatRequest(event, WireGuard);
       }));
 
     if (AMNEZIA_API_BASE_PATH) {
+      const compatGetHelp = (event) => {
+        setHeader(event, 'Content-Type', 'application/json');
+        return {
+          message: 'This URL accepts POST only (JSON body with "act"). Use GET on …/status for a safe read-only check.',
+          ...getCompatApiStatus(),
+        };
+      };
       router
         .get(`${AMNEZIA_API_BASE_PATH}/status`, defineEventHandler((event) => {
           setHeader(event, 'Content-Type', 'application/json');
           return getCompatApiStatus();
         }))
+        .get(AMNEZIA_API_BASE_PATH, defineEventHandler(compatGetHelp))
+        .get(`${AMNEZIA_API_BASE_PATH}/`, defineEventHandler(compatGetHelp))
         .post(AMNEZIA_API_BASE_PATH, defineEventHandler(async (event) => {
           return processAmneziaCompatRequest(event, WireGuard);
         }))
@@ -619,6 +635,12 @@ module.exports = class Server {
 
     createServer(toNodeListener(app)).listen(PORT, WEBUI_HOST);
     debug(`Listening on http://${WEBUI_HOST}:${PORT}`);
+    debug(
+      `Compat API: POST /api/compat/amnezia`
+      + (AMNEZIA_API_BASE_PATH
+        ? `; POST ${AMNEZIA_API_BASE_PATH} (and trailing slash)`
+        : ' (set AMNEZIA_API_BASE_PATH in env for an extra mount, e.g. /awg/api)'),
+    );
 
     cronJobEveryMinute();
   }

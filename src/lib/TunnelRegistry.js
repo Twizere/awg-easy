@@ -97,8 +97,8 @@ module.exports = class TunnelRegistry {
       const pn = parseInt(String(p), 10);
       if (Number.isFinite(pn)) ports.add(pn);
     }
-    const base = parseInt(WG_PORT, 10) || 51820;
-    ports.add(base);
+    // Do not reserve WG_PORT here — it is the intended default for the first tunnel. Pre-marking it
+    // forced every new wg0 to use WG_PORT+1 (often matching PORT by coincidence when PORT=51821).
     return { thirds, ports };
   }
 
@@ -119,7 +119,13 @@ module.exports = class TunnelRegistry {
     if (mapped != null && String(mapped).trim() !== '') {
       port = parseInt(String(mapped), 10) || port;
     }
-    while (ports.has(port)) port += 1;
+    const occupied = new Set(ports);
+    // Env-assigned port for this interface is ours, not a collision with another tunnel.
+    if (mapped != null && String(mapped).trim() !== '') {
+      const own = parseInt(String(mapped), 10);
+      if (Number.isFinite(own)) occupied.delete(own);
+    }
+    while (occupied.has(port)) port += 1;
     return { address, listenPort: port };
   }
 
