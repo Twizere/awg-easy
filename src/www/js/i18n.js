@@ -61,7 +61,7 @@ const messages = { // eslint-disable-line no-unused-vars
     settingsBackupRestore: 'Backup',
     settingsCompatApi: 'API',
     settingsServerRuntime: 'Endpoint & DNS',
-    settingsGlobalScope: 'Applies to all tunnels.',
+    settingsGlobalScope: 'All tunnels',
     settingsCompatMode: 'Automation API',
     settingsCompatUseEnv: 'Default (.env)',
     settingsCompatForceOn: 'On',

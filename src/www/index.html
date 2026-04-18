@@ -485,35 +485,37 @@
 
         <!-- Settings tab -->
         <div v-show="activeTab === 'settings'" class="shadow-md rounded-lg bg-white dark:bg-neutral-700 overflow-hidden mb-6">
-          <div class="p-4 border-b border-gray-100 dark:border-neutral-600">
+          <div class="px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-neutral-600">
             <h2 class="text-xl font-medium dark:text-neutral-200">{{ $t('tabSettings') }}</h2>
           </div>
-          <div class="p-5 space-y-6">
-            <div>
-              <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400 mb-2">{{ $t('settingsBackupRestore') }}</h3>
-              <div class="flex flex-wrap gap-2 items-center">
+          <div class="px-4 sm:px-6 py-4 sm:py-5 divide-y divide-gray-100 dark:divide-neutral-600">
+            <div class="pb-4 sm:pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400 shrink-0">{{ $t('settingsBackupRestore') }}</h3>
+              <div class="flex flex-wrap gap-2">
                 <label for="inputRCSettings" :title="$t('titleRestoreConfig')"
-                  class="hover:cursor-pointer hover:bg-red-800 hover:border-red-800 hover:text-white text-gray-700 dark:text-neutral-200 border-2 border-gray-100 dark:border-neutral-600 py-2 px-4 rounded-md inline-flex items-center transition">
-                  <svg class="w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  class="text-sm border-2 border-gray-100 dark:border-neutral-600 hover:bg-red-800 hover:border-red-800 hover:text-white text-gray-700 dark:text-neutral-200 py-2 px-3 rounded-md inline-flex items-center transition cursor-pointer">
+                  <svg class="w-4 mr-1.5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"></path>
                   </svg>
-                  <span class="text-sm">{{$t("restore")}}</span>
+                  {{$t("restore")}}
                   <input id="inputRCSettings" type="file" name="configurationfileSettings" accept="text/*,.json" @change="restoreConfig" class="hidden"/>
                 </label>
                 <a href="./api/wireguard/backup?tunnel=all" :title="$t('titleBackupConfig')"
-                  class="hover:bg-red-800 hover:border-red-800 hover:text-white text-gray-700 dark:text-neutral-200 border-2 border-gray-100 dark:border-neutral-600 py-2 px-4 rounded-md inline-flex items-center transition">
-                  <svg class="w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  class="text-sm border-2 border-gray-100 dark:border-neutral-600 hover:bg-red-800 hover:border-red-800 hover:text-white text-gray-700 dark:text-neutral-200 py-2 px-3 rounded-md inline-flex items-center transition">
+                  <svg class="w-4 mr-1.5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z"></path>
                   </svg>
-                  <span class="text-sm">{{$t("backup")}}</span>
+                  {{$t("backup")}}
                 </a>
               </div>
             </div>
 
-            <div class="border-t border-gray-100 dark:border-neutral-600 pt-6">
-              <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400 mb-1">{{ $t('settingsServerRuntime') }}</h3>
-              <p class="text-xs text-gray-500 dark:text-neutral-500 mb-3">{{ $t('settingsGlobalScope') }}</p>
-              <div class="space-y-3 max-w-xl">
+            <div class="pt-4 sm:pt-5 pb-4 sm:pb-5 space-y-3 max-w-3xl">
+              <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400">{{ $t('settingsServerRuntime') }}</h3>
+                <span class="text-xs text-gray-500 dark:text-neutral-500">{{ $t('settingsGlobalScope') }}</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs text-gray-600 dark:text-neutral-400 mb-1" for="settingsWgHost">WG_HOST</label>
                   <input id="settingsWgHost" v-model.trim="settingsWgHost" type="text" autocomplete="off" :placeholder="serverSettings && serverSettings.env ? serverSettings.env.wgHost : ''"
@@ -524,10 +526,12 @@
                   <input id="settingsWgDns" v-model.trim="settingsWgDns" type="text" autocomplete="off" :placeholder="serverSettings && serverSettings.env ? serverSettings.env.wgDefaultDns : ''"
                     class="w-full rounded border border-gray-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-gray-900 dark:text-neutral-200 py-2 px-3 text-sm" />
                 </div>
-                <p v-if="serverSettings && serverSettings.effective" class="text-xs text-gray-500 dark:text-neutral-500 font-mono leading-relaxed">
-                  {{ $t('settingsEffective') }}: {{ serverSettings.effective.wgHost }} · {{ serverSettings.effective.wgDefaultDns }}
-                </p>
-                <div>
+              </div>
+              <p v-if="serverSettings && serverSettings.effective" class="text-xs text-gray-500 dark:text-neutral-500 font-mono truncate" :title="serverSettings.effective.wgHost + ' · ' + serverSettings.effective.wgDefaultDns">
+                {{ $t('settingsEffective') }}: {{ serverSettings.effective.wgHost }} · {{ serverSettings.effective.wgDefaultDns }}
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div class="sm:col-span-1">
                   <label class="block text-xs text-gray-600 dark:text-neutral-400 mb-1" for="settingsCompatMode">{{ $t('settingsCompatMode') }}</label>
                   <select id="settingsCompatMode" v-model="settingsCompatMode"
                     class="w-full rounded border border-gray-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-gray-900 dark:text-neutral-200 py-2 px-3 text-sm">
@@ -536,31 +540,35 @@
                     <option value="off">{{ $t('settingsCompatForceOff') }}</option>
                   </select>
                 </div>
+                <div class="sm:justify-self-end sm:w-full sm:max-w-[12rem]">
+                  <button type="button" :disabled="settingsSaving" @click="saveServerSettings"
+                    class="w-full inline-flex justify-center items-center px-4 py-2 rounded-md bg-red-800 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    {{ settingsSaving ? $t('settingsSaving') : $t('settingsSaveRuntime') }}
+                  </button>
+                </div>
               </div>
-              <button type="button" :disabled="settingsSaving" @click="saveServerSettings"
-                class="mt-4 inline-flex items-center px-4 py-2 rounded-md bg-red-800 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition">
-                {{ settingsSaving ? $t('settingsSaving') : $t('settingsSaveRuntime') }}
-              </button>
             </div>
 
-            <div v-if="compatApi" class="border-t border-gray-100 dark:border-neutral-600 pt-6">
-              <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400 mb-2">{{ $t('settingsCompatApi') }}</h3>
-              <div class="text-sm text-gray-700 dark:text-neutral-300 space-y-2 max-w-xl">
-                <p class="font-mono text-xs">
-                  <span :class="compatApi.enabled ? 'text-green-700 dark:text-green-400' : 'text-gray-500'">{{ compatApi.enabled ? '●' : '○' }}</span>
+            <div v-if="compatApi" class="pt-4 sm:pt-5 space-y-2">
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400">{{ $t('settingsCompatApi') }}</h3>
+              <div class="rounded-md bg-gray-50 dark:bg-neutral-800/60 border border-gray-100 dark:border-neutral-600 px-3 py-2.5 text-xs text-gray-700 dark:text-neutral-300 space-y-1.5 max-w-3xl">
+                <p class="font-mono break-words">
+                  <span :class="compatApi.enabled ? 'text-green-700 dark:text-green-400' : 'text-gray-500'" aria-hidden="true">{{ compatApi.enabled ? '●' : '○' }}</span>
                   {{ compatApi.auth }}
                   <span v-if="compatApi.overrideCompatApi" class="text-amber-700 dark:text-amber-400">· {{ $t('settingsOverrideActive') }}</span>
                   <span v-if="compatApi.envEnabled !== undefined" class="text-gray-500 dark:text-neutral-500">· .env {{ compatApi.envEnabled ? 'on' : 'off' }}</span>
                 </p>
-                <p v-if="compatApi.enabled" class="text-xs text-gray-600 dark:text-neutral-400 break-all">
-                  <code class="bg-gray-100 dark:bg-neutral-900 px-1 rounded">POST {{ compatApi.endpoint }}</code>
-                  <span class="mx-1">·</span>
-                  {{ $t('settingsCompatEndpoints') }}
-                </p>
-                <p v-if="compatApi.enabled && compatApi.endpoint !== '/api/compat/amnezia'" class="text-xs text-gray-500 dark:text-neutral-500 font-mono break-all">
-                  GET {{ compatApi.statusPath }}
-                </p>
-                <p v-if="!compatApi.enabled" class="text-xs text-gray-500 dark:text-neutral-500">{{ $t('settingsCompatOffHint') }}</p>
+                <template v-if="compatApi.enabled">
+                  <p class="text-gray-600 dark:text-neutral-400 break-all">
+                    <code class="bg-gray-100 dark:bg-neutral-900 px-1 rounded font-mono">POST {{ compatApi.endpoint }}</code>
+                    <span class="mx-1 text-gray-400">·</span>
+                    {{ $t('settingsCompatEndpoints') }}
+                  </p>
+                  <p v-if="compatApi.endpoint !== '/api/compat/amnezia'" class="text-gray-500 dark:text-neutral-500 font-mono break-all">
+                    GET {{ compatApi.statusPath }}
+                  </p>
+                </template>
+                <p v-else class="text-gray-500 dark:text-neutral-500">{{ $t('settingsCompatOffHint') }}</p>
               </div>
             </div>
           </div>
