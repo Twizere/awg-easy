@@ -476,6 +476,9 @@ Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
   async restoreConfiguration(config) {
     debug('Starting configuration restore process.');
     const _config = JSON.parse(config);
+    if (_config.server && _config.server.listenPort != null && String(_config.server.listenPort).trim() !== '') {
+      Util.assertListenPortInPublishedUdpRange(_config.server.listenPort);
+    }
     await this.__saveConfig(_config);
     await this.__reloadConfig();
     debug('Configuration restore process completed.');
@@ -768,6 +771,7 @@ Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
       if (p < 1 || p > 65535) {
         throw new ServerError('Invalid listen port', 400);
       }
+      Util.assertListenPortInPublishedUdpRange(p);
       config.server.listenPort = p;
     }
     await this.saveConfig();
@@ -787,7 +791,11 @@ Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
     if (host) config.server.address = host;
     if (tunnelData.listenport != null && String(tunnelData.listenport).trim() !== '') {
       const p = parseInt(String(tunnelData.listenport), 10);
-      if (p >= 1 && p <= 65535) config.server.listenPort = p;
+      if (p < 1 || p > 65535) {
+        throw new ServerError('Invalid listen port', 400);
+      }
+      Util.assertListenPortInPublishedUdpRange(p);
+      config.server.listenPort = p;
     }
     if (tunnelData.enabled === false) {
       throw new ServerError(`Disabling tunnel ${this.ifName} is not supported`, 400);

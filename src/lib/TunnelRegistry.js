@@ -12,6 +12,8 @@ const {
   WG_PORT,
   WG_DEFAULT_ADDRESS,
   WG_TUNNEL_DEFAULT_LISTEN_PORT,
+  WG_PUBLISHED_UDP_PORT_MIN,
+  WG_PUBLISHED_UDP_PORT_MAX,
 } = require('../config');
 
 module.exports = class TunnelRegistry {
@@ -106,7 +108,19 @@ module.exports = class TunnelRegistry {
     const { thirds, ports } = await this.__snapshotUsedAddressThirdOctetsAndPorts();
     const oct = WG_DEFAULT_ADDRESS.split('.');
     if (oct.length !== 4) {
-      return { address: '10.8.0.1', listenPort: (parseInt(WG_PORT, 10) || 51820) + 1 };
+      let port = (parseInt(WG_PORT, 10) || 51820) + 1;
+      const occupied = new Set(ports);
+      while (occupied.has(port)) {
+        port += 1;
+        if (port > WG_PUBLISHED_UDP_PORT_MAX) {
+          throw new ServerError(
+            `No free UDP port in published range ${WG_PUBLISHED_UDP_PORT_MIN}-${WG_PUBLISHED_UDP_PORT_MAX}.`,
+            400,
+          );
+        }
+      }
+      Util.assertListenPortInPublishedUdpRange(port);
+      return { address: '10.8.0.1', listenPort: port };
     }
     let third = parseInt(oct[2], 10);
     if (!Number.isFinite(third)) third = 0;
@@ -125,7 +139,17 @@ module.exports = class TunnelRegistry {
       const own = parseInt(String(mapped), 10);
       if (Number.isFinite(own)) occupied.delete(own);
     }
-    while (occupied.has(port)) port += 1;
+    while (true) {
+      Util.assertListenPortInPublishedUdpRange(port);
+      if (!occupied.has(port)) break;
+      port += 1;
+      if (port > WG_PUBLISHED_UDP_PORT_MAX) {
+        throw new ServerError(
+          `No free UDP port in published range ${WG_PUBLISHED_UDP_PORT_MIN}-${WG_PUBLISHED_UDP_PORT_MAX}.`,
+          400,
+        );
+      }
+    }
     return { address, listenPort: port };
   }
 

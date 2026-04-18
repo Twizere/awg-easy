@@ -35,6 +35,33 @@ module.exports.WG_DEVICE = process.env.WG_DEVICE || 'eth0';
 module.exports.WG_HOST = process.env.WG_HOST;
 module.exports.WG_PORT = process.env.WG_PORT || '51820';
 module.exports.WG_CONFIG_PORT = process.env.WG_CONFIG_PORT || process.env.WG_PORT || '51820';
+
+/** Same semantics as Docker Compose: unset → single port `WG_PORT`; else `min-max` or one port. Used to validate tunnel listen ports. */
+(function parsePublishedUdpPortRange() {
+  const wgPort = parseInt(module.exports.WG_PORT, 10) || 51820;
+  let min = wgPort;
+  let max = wgPort;
+  const raw = process.env.WG_UDP_PORT_RANGE;
+  if (raw && typeof raw === 'string' && raw.trim()) {
+    const t = raw.trim();
+    if (t.includes('-')) {
+      const idx = t.indexOf('-');
+      const a = parseInt(t.slice(0, idx).trim(), 10);
+      const b = parseInt(t.slice(idx + 1).trim(), 10);
+      if (Number.isFinite(a) && Number.isFinite(b) && a >= 1 && b <= 65535) {
+        min = Math.min(a, b);
+        max = Math.max(a, b);
+      }
+    } else {
+      const p = parseInt(t, 10);
+      if (Number.isFinite(p) && p >= 1 && p <= 65535) {
+        min = max = p;
+      }
+    }
+  }
+  module.exports.WG_PUBLISHED_UDP_PORT_MIN = min;
+  module.exports.WG_PUBLISHED_UDP_PORT_MAX = max;
+}());
 /** Comma-separated tunnels: `wg0,wg1` or explicit ports `wg0:51820,wg1:51821`. Used for default ListenPort when not set in each tunnel JSON. */
 module.exports.WG_TUNNELS = process.env.WG_TUNNELS || '';
 module.exports.WG_MTU = process.env.WG_MTU || null;

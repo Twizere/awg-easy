@@ -1,12 +1,31 @@
 'use strict';
 
 const childProcess = require('child_process');
+const ServerError = require('./ServerError');
+const {
+  WG_PUBLISHED_UDP_PORT_MIN,
+  WG_PUBLISHED_UDP_PORT_MAX,
+} = require('../config');
 
 module.exports = class Util {
 
   /** Linux interface name: max 15 chars, alphanumeric, underscore, hyphen. */
   static isValidTunnelInterfaceName(name) {
     return typeof name === 'string' && /^[a-zA-Z0-9_-]{1,15}$/.test(name);
+  }
+
+  /** Ensures listen port matches `WG_UDP_PORT_RANGE` / `WG_PORT` (must match Docker-published UDP ports). */
+  static assertListenPortInPublishedUdpRange(port) {
+    const p = typeof port === 'number' ? port : parseInt(String(port).trim(), 10);
+    if (!Number.isFinite(p) || p < 1 || p > 65535) {
+      throw new ServerError('Invalid listen port', 400);
+    }
+    if (p < WG_PUBLISHED_UDP_PORT_MIN || p > WG_PUBLISHED_UDP_PORT_MAX) {
+      throw new ServerError(
+        `Listen port ${p} is outside the published UDP range ${WG_PUBLISHED_UDP_PORT_MIN}-${WG_PUBLISHED_UDP_PORT_MAX} (set WG_UDP_PORT_RANGE in .env to match docker-compose and restart).`,
+        400,
+      );
+    }
   }
 
   static isValidIPv4(str) {
