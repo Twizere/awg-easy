@@ -109,6 +109,7 @@ These options can be configured by setting environment variables using `-e KEY="
 | `WG_HOST`                     | -                 | `vpn.myserver.com`             | The public hostname of your VPN server.                                                                                                                                                                                  |
 | `WG_DEVICE`                   | `eth0`            | `ens6f0`                       | Ethernet device the wireguard traffic should be forwarded through.                                                                                                                                                       |
 | `WG_PORT`                     | `51820`           | `12345`                        | Default UDP listen port when a tunnel JSON has no `server.listenPort` (typically `wg0`).                                                                                                                                 |
+| `WG_UDP_PORT_RANGE`           | *(unset)*         | `51820-52100`                  | **Docker Compose only:** publish a **UDP port range** on the host (same range inside the container). If unset, only `WG_PORT` is published (`WG_PORT`–`WG_PORT`). Set when you run **multiple tunnels** on different listen ports without listing each port. |
 | `WG_TUNNELS`                  | *(empty)*         | `wg0,wg1` or `wg0:51820,wg1:51821` | Optional list of interface names to bring up on start. Names without `:port` get sequential UDP ports starting at `WG_PORT`. Merged with tunnel JSON files found under `WG_PATH`.                                   |
 | `WG_CONFIG_PORT`              | `51820`           | `12345`                        | The UDP port used on [Home Assistant Plugin](https://github.com/adriy-be/homeassistant-addons-jdeath/tree/main/wgeasy)                                                                                                   |
 | `WG_MTU`                      | `null`            | `1420`                         | The MTU the clients will use. Server uses default WG MTU.                                                                                                                                                                |
@@ -145,7 +146,7 @@ These options can be configured by setting environment variables using `-e KEY="
 | `H3`                          | `random`          | `1234567893`                   | Underload packet magic header — UnderLoad packet header. Must be < uint_max.                                                                                                                                             |
 | `H4`                          | `random`          | `1234567894`                   | Transport packet magic header — header of the packet of the data packet. Must be < uint_max.                                                                                                                             |
 
-> If you change `WG_PORT`, make sure to also change the exposed port. For **more than one tunnel**, publish **one host UDP port per tunnel** (each tunnel’s `ListenPort` in its JSON / `WG_TUNNELS`).
+> If you change `WG_PORT`, make sure it still falls inside the **published** UDP range. For **more than one tunnel**, either publish **one host UDP port per tunnel** or set **`WG_UDP_PORT_RANGE`** (e.g. `51820-52100`) so every tunnel `ListenPort` in that range is reachable.
 
 ### Multiple tunnels (quick reference)
 
@@ -154,14 +155,14 @@ These options can be configured by setting environment variables using `-e KEY="
 * **Web UI:** tunnel dropdown when more than one tunnel exists; API paths `/api/wireguard/{tunnel}/client/...` (legacy `/api/wireguard/client/...` stays on **`wg0`**).
 * **Backup:** `GET /api/wireguard/backup?tunnel=wg0` (default), `?tunnel=all` for a single JSON file with `{ "_format": "...", "tunnels": { "wg0": {...}, "wg1": {...} } }`. Restore that file via **`PUT /api/wireguard/restore`**; the server detects the multi-tunnel format and restores every listed tunnel.
 
-**Docker / Compose:** map every UDP port WireGuard listens on, for example `-p 51820:51820/udp -p 51821:51821/udp` when `wg1` uses `51821`, in addition to the Web UI TCP port (`PORT`).
+**Docker / Compose:** map every UDP port WireGuard listens on — either **`-p start-end:start-end/udp`** (see **`WG_UDP_PORT_RANGE`** in [`.env.example`](./.env.example) and [`docker-compose.yml`](./docker-compose.yml)) or separate lines per port, e.g. `-p 51820:51820/udp -p 51821:51821/udp`, plus the Web UI TCP port (`PORT`).
 
 ### VPN client won’t connect (Docker on a VPS)
 
 The Web UI can work while WireGuard peers do not — check these in order:
 
 1. **`WG_HOST`** in `.env` must be this server’s **public IPv4** or a **DNS name** that resolves to it (what clients use to reach you). Open the downloaded `.conf` and confirm **`Endpoint = …:port`**. If `WG_HOST` was wrong or a placeholder, fix `.env`, **`docker compose up -d --force-recreate`**, then **delete the old client and create a new one** (or re-download the config) so the Endpoint updates.
-2. **UDP port** — **`WG_PORT`** in `.env`, the **`${WG_PORT}:${WG_PORT}/udp`** mapping in [`docker-compose.yml`](./docker-compose.yml), and the **Endpoint port** in the client must all match. If you change `WG_PORT`, remap Docker and open the firewall for the new port.
+2. **UDP port** — each tunnel’s **listen port** must be inside what Docker publishes (`WG_UDP_PORT_RANGE` or the default `WG_PORT` mapping in [`docker-compose.yml`](./docker-compose.yml)) and match the **Endpoint** port in the client. Remap Docker and open the firewall for that port or range.
 3. **Cloud firewall** (Vultr, AWS, etc.) — allow **inbound UDP** on that port to the instance. The control panel firewall is separate from `ufw` on the VM.
 4. **Host firewall** — e.g. `sudo ufw allow 51820/udp` (adjust to your `WG_PORT`), then `sudo ufw reload`.
 5. **On the server**, after a connect attempt:  
