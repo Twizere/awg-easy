@@ -156,6 +156,21 @@ These options can be configured by setting environment variables using `-e KEY="
 
 **Docker / Compose:** map every UDP port WireGuard listens on, for example `-p 51820:51820/udp -p 51821:51821/udp` when `wg1` uses `51821`, in addition to the Web UI TCP port (`PORT`).
 
+### VPN client won’t connect (Docker on a VPS)
+
+The Web UI can work while WireGuard peers do not — check these in order:
+
+1. **`WG_HOST`** in `.env` must be this server’s **public IPv4** or a **DNS name** that resolves to it (what clients use to reach you). Open the downloaded `.conf` and confirm **`Endpoint = …:port`**. If `WG_HOST` was wrong or a placeholder, fix `.env`, **`docker compose up -d --force-recreate`**, then **delete the old client and create a new one** (or re-download the config) so the Endpoint updates.
+2. **UDP port** — **`WG_PORT`** in `.env`, the **`${WG_PORT}:${WG_PORT}/udp`** mapping in [`docker-compose.yml`](./docker-compose.yml), and the **Endpoint port** in the client must all match. If you change `WG_PORT`, remap Docker and open the firewall for the new port.
+3. **Cloud firewall** (Vultr, AWS, etc.) — allow **inbound UDP** on that port to the instance. The control panel firewall is separate from `ufw` on the VM.
+4. **Host firewall** — e.g. `sudo ufw allow 51820/udp` (adjust to your `WG_PORT`), then `sudo ufw reload`.
+5. **On the server**, after a connect attempt:  
+   `docker compose exec amnezia-wg-easy wg show wg0`  
+   If **latest handshake** stays empty, packets are not reaching WireGuard (wrong IP/port/firewall) or the client uses the wrong Endpoint.
+6. **Test from another network** (e.g. phone on LTE) to rule out LAN hairpin/NAT oddities.
+
+`WG_DEVICE=eth0` is correct for the default route **inside** the container; change it only if you know your setup needs another interface.
+
 ## pfSense-style external API
 
 The optional compatibility layer mirrors a typical AmneziaWG **pfSense** JSON API: JSON body with an `act` field, JSON responses with optional `data` and `message`, and automation auth via **`X-API-Key`** (not the Web UI bcrypt password). It operates on **real interface names** (`wg0`, `wg1`, …) discovered from `WG_PATH` and `WG_TUNNELS`.
