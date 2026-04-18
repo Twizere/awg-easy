@@ -200,7 +200,7 @@ The optional compatibility layer mirrors a typical AmneziaWG **pfSense** JSON AP
 | `get_connected_peers` | Per-tunnel blocks with `tunnel`, `peers`, `total_peers`. |
 | `sync_peers` | Body: `peers` (array), optional `tunnel` (`all` or a specific interface, e.g. `wg1`). Replaces the client set on the chosen tunnel(s) to match the list (empty `peers` clears). Each peer: `public_key`, `description`, optional `allowed_ips`, optional `enabled`. |
 | `sync_peers_all` | Same as `sync_peers` with tunnel `all`. |
-| `sync_tunnels` | Body: `tunnels` (array). Each element **`name`** must match the target interface; updates server address and Amnezia parameters from `config` / `address` / `listen_port`. |
+| `sync_tunnels` | Body: `tunnels` (array). Each element **`name`** must match the target interface; updates server address and Amnezia parameters from `config` / `address` / `listen_port`. **`address`** may be a **network CIDR** (e.g. `["10.18.0.0/16"]`); the server is stored as the **first host** in that prefix (here `10.18.0.1`). Plain IPv4 without `/` is stored as given. |
 | `add_tunnel` | Body: `tunnel` object with **`name`** (interface), optional `overwrite`. If the JSON file already exists and `overwrite` is not `true`, returns an error. |
 | `reset_tunnel` | Body: `tunnel` = interface name. Regenerates random Amnezia obfuscation fields for that tunnel. |
 

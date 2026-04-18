@@ -59,6 +59,38 @@ module.exports = class Util {
     }
   }
 
+  /**
+   * API may send a network CIDR (e.g. `10.18.0.0/16`); WireGuard server LAN is stored as first host (`10.18.0.1`).
+   * Plain IPv4 without `/` is returned as-is. `/32` returns that host.
+   */
+  static normalizeNetworkCidrToWireGuardServerIPv4(s) {
+    const str = String(s || '').trim();
+    if (!str) return null;
+    if (!str.includes('/')) {
+      return Util.isValidIPv4(str) ? str : null;
+    }
+    const slash = str.lastIndexOf('/');
+    const ipStr = str.slice(0, slash).trim();
+    const mask = parseInt(str.slice(slash + 1).trim(), 10);
+    if (!Number.isFinite(mask) || mask < 0 || mask > 32) return null;
+    const parts = ipStr.split('.');
+    if (parts.length !== 4) return null;
+    const a = parseInt(parts[0], 10);
+    const b = parseInt(parts[1], 10);
+    const c = parseInt(parts[2], 10);
+    const d = parseInt(parts[3], 10);
+    if ([a, b, c, d].some((x) => !Number.isFinite(x) || x < 0 || x > 255)) return null;
+    const ip = (a << 24) | (b << 16) | (c << 8) | d;
+    if (mask === 32) {
+      return `${a}.${b}.${c}.${d}`;
+    }
+    const hostBits = 32 - mask;
+    const network = (ip >>> hostBits) << hostBits;
+    const firstHost = (network + 1) >>> 0;
+    if (firstHost > 0xffffffff) return null;
+    return `${(firstHost >>> 24) & 255}.${(firstHost >>> 16) & 255}.${(firstHost >>> 8) & 255}.${firstHost & 255}`;
+  }
+
   static promisify(fn) {
     // eslint-disable-next-line func-names
     return function(req, res) {

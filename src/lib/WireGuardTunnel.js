@@ -730,13 +730,20 @@ Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
 
   __parseTunnelServerAddress(tunnel) {
     if (tunnel.address && Array.isArray(tunnel.address) && tunnel.address[0]) {
-      const first = String(tunnel.address[0]);
-      const host = first.split('/')[0];
-      if (Util.isValidIPv4(host)) return host;
+      const first = String(tunnel.address[0]).trim();
+      const normalized = Util.normalizeNetworkCidrToWireGuardServerIPv4(first);
+      if (normalized) return normalized;
     }
     if (tunnel.addresses && Array.isArray(tunnel.addresses) && tunnel.addresses[0]) {
       const row = tunnel.addresses[0];
-      if (row && row.address && Util.isValidIPv4(row.address)) return row.address;
+      if (row && row.address) {
+        if (row.mask != null && String(row.mask).trim() !== '') {
+          const cidr = `${row.address}/${row.mask}`;
+          const normalized = Util.normalizeNetworkCidrToWireGuardServerIPv4(cidr);
+          if (normalized) return normalized;
+        }
+        if (Util.isValidIPv4(row.address)) return row.address;
+      }
     }
     return null;
   }
