@@ -7,7 +7,7 @@ node_modules/
 .env.*.local
 !.env.example
 
-# Optional local Docker Compose merge (e.g. Apple Silicon platform override)
+# Local-only Compose merge (never commit): Mac ARM64 vs Ubuntu AMD64 need different overrides.
 docker-compose.override.yml
 
 # --- WireGuard / Docker local state ---

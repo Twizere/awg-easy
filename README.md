@@ -61,7 +61,7 @@ cp docker-compose.override.yml.example docker-compose.override.yml
 docker compose build --no-cache && docker compose up -d
 ```
 
-Compose auto-merges `docker-compose.override.yml` (gitignored). On **x86_64 Linux** servers, skip this unless you deliberately target `arm64`.
+Compose auto-merges `docker-compose.override.yml`. That file is **gitignored** (only [`docker-compose.override.yml.example`](./docker-compose.override.yml.example) is in the repo) so Mac and **Ubuntu** (or any server) can each keep a local override without committing it. On **x86_64 Linux** (typical Ubuntu VPS), do **not** copy the example—use [`docker-compose.yml`](./docker-compose.yml) alone so the image matches **amd64**. Only use the override on **Apple Silicon** when you need a native **arm64** build.
 
 **Prebuilt registry image** (`ghcr.io/w0rng/amnezia-wg-easy`): you can still run a published image directly, for example:
 
