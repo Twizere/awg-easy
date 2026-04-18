@@ -197,6 +197,18 @@ curl -sS -X POST "http://127.0.0.1:51821/api/compat/amnezia" \
   -d '{"act":"get_peers"}'
 ```
 
+### `405 Method Not Allowed` even with POST
+
+That usually means the request **never hit** the compat handler (so it fell through to the static file layer, which only allows GET).
+
+1. **Use the URL the container actually registered** — Extra mounts exist **only if** `AMNEZIA_API_BASE_PATH` is set **inside the running container**. Check:  
+   `docker compose exec amnezia-wg-easy printenv AMNEZIA_API_BASE_PATH`  
+   If this prints nothing, the variable is missing (common on a fresh server clone without a full `.env`). Copy **[`.env.example`](./.env.example)** to **`.env`**, set **`AMNEZIA_API_BASE_PATH=/awg/api`** (and **`AMNEZIA_API_KEY`**, etc.), then **`docker compose up -d --force-recreate`**.  
+   Until then, **`POST /awg/api` does not exist** — use **`POST /api/compat/amnezia`** (always registered) or fix `.env`.
+2. **Reverse proxy (nginx, Caddy, Traefik)** — Ensure the location allows **`POST`** (no `limit_except GET` / wrong `proxy_pass` stripping the path). Test the app directly:  
+   `curl -X POST http://127.0.0.1:PORT/api/compat/amnezia ...` on the host where Node listens (mapped `PORT`).
+3. **Startup log** — With `DEBUG=Server` in the container env, logs include which compat POST paths were registered.
+
 ## Updating
 
 **If you run from source** (`docker compose` with local build): pull the latest Git changes, then rebuild and recreate:
