@@ -1,1 +1,8 @@
-/src/node_modules
+.git
+.env
+.env.*
+.wg-data
+.wg-run
+config
+**/node_modules
+src/node_modules

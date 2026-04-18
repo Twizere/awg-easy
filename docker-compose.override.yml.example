@@ -1,0 +1,11 @@
+# Apple Silicon (linux/arm64 host): copy to `docker-compose.override.yml` so images build and run
+# as ARM64 instead of pulling the amd64 variant of base images (removes the platform mismatch warning).
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# Docker Compose merges `docker-compose.override.yml` automatically (that file is gitignored).
+# On x86_64 Linux servers, do not use this file unless you intend to build for arm64.
+
+services:
+  amnezia-wg-easy:
+    platform: linux/arm64

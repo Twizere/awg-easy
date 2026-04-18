@@ -7,6 +7,9 @@ node_modules/
 .env.*.local
 !.env.example
 
+# Optional local Docker Compose merge (e.g. Apple Silicon platform override)
+docker-compose.override.yml
+
 # --- WireGuard / Docker local state ---
 # Docker bind mount (see root package.json `start` / `sudostart`)
 /config/

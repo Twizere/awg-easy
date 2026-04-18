@@ -3,9 +3,14 @@ volumes:
 
 services:
   amnezia-wg-easy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Local-only name: without pull_policy, Compose tries Docker Hub for "amnezia-wg-easy" and fails.
+    image: amnezia-wg-easy:local
+    pull_policy: never
     env_file:
       - .env
-    image: ghcr.io/w0rng/amnezia-wg-easy
     container_name: amnezia-wg-easy
     volumes:
       - etc_wireguard:/etc/wireguard

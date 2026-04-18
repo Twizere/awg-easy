@@ -46,7 +46,24 @@ And log in again.
 
 ### 2. Run AmneziaWG Easy
 
-To automatically install & run wg-easy, simply run:
+**From this repository (no `ghcr.io/w0rng/amnezia-wg-easy` image):** in the repo root, with `.env` filled in, run:
+
+```bash
+docker compose up --build -d
+```
+
+That builds the local [`Dockerfile`](./Dockerfile) and runs the image tagged **`amnezia-wg-easy:local`** ([`docker-compose.yml`](./docker-compose.yml)). Compose uses **`pull_policy: never`** for that tag so Docker does not try to pull a non-existent `amnezia-wg-easy` repository from Docker Hub. The first build still pulls **base** layers from Docker Hub (**`amneziavpn/amnezia-wg`** and **`node:18-alpine`**) unless they are already cached.
+
+**Apple Silicon (M1/M2/M3):** if you see *“platform (linux/amd64) does not match the host (linux/arm64)”*, Docker resolved the base image to **amd64**. For a native **arm64** build, copy the override once and rebuild:
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+docker compose build --no-cache && docker compose up -d
+```
+
+Compose auto-merges `docker-compose.override.yml` (gitignored). On **x86_64 Linux** servers, skip this unless you deliberately target `arm64`.
+
+**Prebuilt registry image** (`ghcr.io/w0rng/amnezia-wg-easy`): you can still run a published image directly, for example:
 
 ```
   docker run -d \
@@ -182,7 +199,13 @@ curl -sS -X POST "http://127.0.0.1:51821/api/compat/amnezia" \
 
 ## Updating
 
-To update to the latest version, simply run:
+**If you run from source** (`docker compose` with local build): pull the latest Git changes, then rebuild and recreate:
+
+```bash
+docker compose up --build -d
+```
+
+**If you use the prebuilt image** from GHCR:
 
 ```bash
 docker stop amnezia-wg-easy
@@ -190,7 +213,7 @@ docker rm amnezia-wg-easy
 docker pull ghcr.io/w0rng/amnezia-wg-easy
 ```
 
-And then run the `docker run -d \ ...` command above again.
+Then run the `docker run -d \ ...` command above again (or switch your compose file back to `image: ghcr.io/w0rng/amnezia-wg-easy` without `build:`).
 
 ## Thanks
 
