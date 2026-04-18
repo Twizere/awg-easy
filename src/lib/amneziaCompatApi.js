@@ -15,6 +15,7 @@ const {
   AMNEZIA_COMPAT_POST_PATH,
   AMNEZIA_COMPAT_STATUS_PATH,
 } = require('../config');
+const ServerSettings = require('./ServerSettings');
 
 function timingSafeEqualString(a, b) {
   const sa = String(a ?? '');
@@ -41,16 +42,20 @@ function compatRespond(event, status, data, message) {
 }
 
 function getCompatApiStatus() {
+  const envEnabled = AMNEZIA_API_ENABLED;
+  const effective = ServerSettings.getEffectiveCompatApiEnabled();
   return {
-    enabled: AMNEZIA_API_ENABLED,
+    enabled: effective,
     auth: AMNEZIA_API_AUTH,
     endpoint: AMNEZIA_COMPAT_POST_PATH,
     statusPath: AMNEZIA_COMPAT_STATUS_PATH,
+    envEnabled,
+    overrideCompatApi: ServerSettings.hasCompatApiOverride(),
   };
 }
 
 function assertCompatApiPostAllowed(headers) {
-  if (!AMNEZIA_API_ENABLED) {
+  if (!ServerSettings.getEffectiveCompatApiEnabled()) {
     return { ok: false, status: 403, message: 'API is disabled' };
   }
   const authMethod = (AMNEZIA_API_AUTH || 'apikey').toLowerCase();

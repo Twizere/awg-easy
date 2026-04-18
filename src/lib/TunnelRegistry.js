@@ -65,7 +65,38 @@ module.exports = class TunnelRegistry {
     const fromEnv = this.__tunnelNamesFromEnv();
     let merged = [...new Set([...onDisk, ...fromEnv])];
     if (merged.length === 0) merged = ['wg0'];
-    this.orderedTunnelNames = this.sortTunnelNames(merged);
+    const sorted = this.sortTunnelNames(merged);
+    const ok = [];
+    /** @type {{ extraThirds: Set<number>, extraPorts: Set<number> }} */
+    const sim = { extraThirds: new Set(), extraPorts: new Set() };
+    for (const name of sorted) {
+      try {
+        await fs.access(path.join(WG_PATH, `${name}.json`));
+        ok.push(name);
+      } catch {
+        try {
+          const def = await this.__defaultsForNewTunnelFile(name, null, sim);
+          sim.extraPorts.add(def.listenPort);
+          const parts = String(def.address || '').split('.');
+          if (parts.length === 4) {
+            const t = parseInt(parts[2], 10);
+            if (Number.isFinite(t)) sim.extraThirds.add(t);
+          }
+          ok.push(name);
+        } catch (e) {
+          const msg = e && e.message ? e.message : String(e);
+          debug(
+            'Omitting tunnel %s from startup list (no JSON yet; cannot allocate defaults): %s',
+            name,
+            msg,
+          );
+        }
+      }
+    }
+    if (ok.length === 0) {
+      ok.push('wg0');
+    }
+    this.orderedTunnelNames = this.sortTunnelNames(ok);
     debug('Tunnels: %s', this.orderedTunnelNames.join(', '));
   }
 
@@ -106,9 +137,19 @@ module.exports = class TunnelRegistry {
    * @param {string} ifName
    * @param {{ listenPort?: number } | null | undefined} hints When creating a tunnel from sync_tunnels/add_tunnel,
    *   use this listen port before falling back to env defaults (avoids defaulting to WG_PORT outside WG_UDP_PORT_RANGE).
+   * @param {{ extraThirds?: Set<number>, extraPorts?: Set<number> } | null} simulationState When set (startup dry-run),
+   *   merge these into snapshot so multiple planned tunnels reserve distinct ports/subnets.
    */
-  async __defaultsForNewTunnelFile(ifName, hints) {
+  async __defaultsForNewTunnelFile(ifName, hints, simulationState) {
     const { thirds, ports } = await this.__snapshotUsedAddressThirdOctetsAndPorts();
+    const thirdsView = new Set(thirds);
+    const portsView = new Set(ports);
+    if (simulationState && simulationState.extraThirds) {
+      for (const t of simulationState.extraThirds) thirdsView.add(t);
+    }
+    if (simulationState && simulationState.extraPorts) {
+      for (const p of simulationState.extraPorts) portsView.add(p);
+    }
     const oct = WG_DEFAULT_ADDRESS.split('.');
     if (oct.length !== 4) {
       let port = WG_PUBLISHED_UDP_PORT_MIN;
@@ -116,12 +157,14 @@ module.exports = class TunnelRegistry {
         const hp = parseInt(String(hints.listenPort), 10);
         if (Number.isFinite(hp)) port = hp;
       }
-      const occupied = new Set(ports);
+      const occupied = new Set(portsView);
       while (occupied.has(port)) {
         port += 1;
         if (port > WG_PUBLISHED_UDP_PORT_MAX) {
           throw new ServerError(
-            `No free UDP port in published range ${WG_PUBLISHED_UDP_PORT_MIN}-${WG_PUBLISHED_UDP_PORT_MAX}.`,
+            `No free UDP port in published range ${WG_PUBLISHED_UDP_PORT_MIN}-${WG_PUBLISHED_UDP_PORT_MAX}. `
+            + 'Each tunnel needs a distinct UDP port: widen WG_UDP_PORT_RANGE (and publish the same range in Docker '
+            + '`-p …/udp`) or remove extra tunnel names from WG_TUNNELS.',
             400,
           );
         }
@@ -131,7 +174,7 @@ module.exports = class TunnelRegistry {
     }
     let third = parseInt(oct[2], 10);
     if (!Number.isFinite(third)) third = 0;
-    while (thirds.has(third)) third += 1;
+    while (thirdsView.has(third)) third += 1;
     if (third > 254) third = 254;
     const address = `${oct[0]}.${oct[1]}.${third}.1`;
 
@@ -144,7 +187,7 @@ module.exports = class TunnelRegistry {
       const hp = parseInt(String(hints.listenPort), 10);
       if (Number.isFinite(hp)) port = hp;
     }
-    const occupied = new Set(ports);
+    const occupied = new Set(portsView);
     // Env-assigned port for this interface is ours, not a collision with another tunnel.
     if (mapped != null && String(mapped).trim() !== '') {
       const own = parseInt(String(mapped), 10);
@@ -156,7 +199,9 @@ module.exports = class TunnelRegistry {
       port += 1;
       if (port > WG_PUBLISHED_UDP_PORT_MAX) {
         throw new ServerError(
-          `No free UDP port in published range ${WG_PUBLISHED_UDP_PORT_MIN}-${WG_PUBLISHED_UDP_PORT_MAX}.`,
+          `No free UDP port in published range ${WG_PUBLISHED_UDP_PORT_MIN}-${WG_PUBLISHED_UDP_PORT_MAX}. `
+          + 'Each tunnel needs a distinct UDP port: widen WG_UDP_PORT_RANGE (and publish the same range in Docker '
+          + '`-p …/udp`) or remove extra tunnel names from WG_TUNNELS.',
           400,
         );
       }
@@ -165,18 +210,29 @@ module.exports = class TunnelRegistry {
   }
 
   /**
-   * @param {{ newTunnelHints?: { listenPort?: number } }} [options] Used when the tunnel JSON does not exist yet
+   * @param {{ newTunnelHints?: { listenPort?: number }, provisionMissing?: boolean }} [options] Used when the tunnel JSON does not exist yet
    *   (e.g. sync_tunnels / add_tunnel include listen_port so defaults stay inside WG_UDP_PORT_RANGE).
+   *   Set `provisionMissing: true` when the API intentionally creates a tunnel (session sync/add). Otherwise only
+   *   tunnels listed after refresh (or existing JSON on disk) may be opened — avoids auto-creating interfaces for bad URLs
+   *   (e.g. stale UI tunnel name) which exhausts the published UDP port range.
    */
   async getTunnel(ifName, options = {}) {
     if (!Util.isValidTunnelInterfaceName(ifName)) {
       throw new ServerError(`Invalid tunnel name: ${ifName}`, 400);
+    }
+    if (!this.orderedTunnelNames.length) {
+      await this.refreshOrderedTunnelNames();
     }
     if (!this.tunnels.has(ifName)) {
       let defaults = null;
       try {
         await fs.access(path.join(WG_PATH, `${ifName}.json`));
       } catch {
+        const mayProvision = options.provisionMissing === true
+          || (Array.isArray(this.orderedTunnelNames) && this.orderedTunnelNames.includes(ifName));
+        if (!mayProvision) {
+          throw new ServerError(`Tunnel '${ifName}' not found`, 404);
+        }
         defaults = await this.__defaultsForNewTunnelFile(ifName, options.newTunnelHints || null);
       }
       this.tunnels.set(ifName, new WireGuardTunnel(ifName, { newTunnelDefaults: defaults }));
@@ -201,8 +257,28 @@ module.exports = class TunnelRegistry {
   }
 
   async listTunnels() {
+    return this.getTunnelSummaries();
+  }
+
+  async deleteTunnel(ifName) {
+    if (!Util.isValidTunnelInterfaceName(ifName)) {
+      throw new ServerError(`Invalid tunnel name: ${ifName}`, 400);
+    }
     await this.ensureInitialized();
-    return this.orderedTunnelNames.map((name) => ({ name }));
+    if (this.orderedTunnelNames.length <= 1) {
+      throw new ServerError('Cannot delete the last remaining tunnel', 400);
+    }
+    if (!this.orderedTunnelNames.includes(ifName)) {
+      throw new ServerError(`Tunnel '${ifName}' not found`, 404);
+    }
+    await (await this.getTunnel(ifName)).Shutdown();
+    await fs.unlink(path.join(WG_PATH, `${ifName}.json`)).catch(() => {});
+    await fs.unlink(path.join(WG_PATH, `${ifName}.conf`)).catch(() => {});
+    this.__initPromise = null;
+    this.tunnels.clear();
+    await this.refreshOrderedTunnelNames();
+    await this.ensureInitialized();
+    return { success: true };
   }
 
   async getClients() {
@@ -345,14 +421,14 @@ module.exports = class TunnelRegistry {
       for (const [name, cfg] of Object.entries(parsed.tunnels)) {
         if (!Util.isValidTunnelInterfaceName(name)) continue;
         const json = typeof cfg === 'string' ? cfg : JSON.stringify(cfg);
-        await (await this.getTunnel(name)).restoreConfiguration(json);
+        await (await this.getTunnel(name, { provisionMissing: true })).restoreConfiguration(json);
       }
       this.__initPromise = null;
       this.tunnels.clear();
       await this.ensureInitialized();
       return;
     }
-    await (await this.getTunnel(tunnel)).restoreConfiguration(typeof fileContent === 'string' ? fileContent : JSON.stringify(parsed));
+    await (await this.getTunnel(tunnel, { provisionMissing: true })).restoreConfiguration(typeof fileContent === 'string' ? fileContent : JSON.stringify(parsed));
     this.__initPromise = null;
     this.tunnels.clear();
     await this.ensureInitialized();
@@ -395,7 +471,7 @@ module.exports = class TunnelRegistry {
         const p = parseInt(String(lp), 10);
         if (Number.isFinite(p)) newTunnelHints.listenPort = p;
       }
-      await (await this.getTunnel(spec.name, { newTunnelHints })).applyCompatTunnelSpec(spec);
+      await (await this.getTunnel(spec.name, { newTunnelHints, provisionMissing: true })).applyCompatTunnelSpec(spec);
     }
     this.__initPromise = null;
     this.tunnels.clear();
@@ -424,7 +500,7 @@ module.exports = class TunnelRegistry {
       const p = parseInt(String(tunnelData.listenport), 10);
       if (Number.isFinite(p)) newTunnelHints.listenPort = p;
     }
-    await (await this.getTunnel(name, { newTunnelHints })).mergeAddTunnelFormat(tunnelData);
+    await (await this.getTunnel(name, { newTunnelHints, provisionMissing: true })).mergeAddTunnelFormat(tunnelData);
     this.__initPromise = null;
     this.tunnels.clear();
     await this.refreshOrderedTunnelNames();

@@ -152,8 +152,15 @@ These options can be configured by setting environment variables using `-e KEY="
 
 * **On disk:** `{WG_PATH}/{ifName}.json` and `{ifName}.conf` (e.g. `wg0.json`, `wg1.json`). Legacy installs with only `wg0.json` behave as before.
 * **Subnets:** each tunnel should use a **non-overlapping** `/24` (server address drives the client pool, e.g. `10.8.0.1` → clients `10.8.0.x`; a new tunnel picks the next free third octet when created). The server address **must not** end in `.0` or `.255`. **Docker:** the container’s `eth0` is usually in **`172.17.0.0/16`–`172.31.0.0/16`**; do **not** put a tunnel’s `/24` in the same range as `eth0` (e.g. if `eth0` is `172.18.0.2/16`, avoid `172.18.0.0/24` for WireGuard or clients can conflict with the container IP and lose internet).
-* **Web UI:** tunnel dropdown when more than one tunnel exists; API paths `/api/wireguard/{tunnel}/client/...` (legacy `/api/wireguard/client/...` stays on **`wg0`**).
-* **Backup:** `GET /api/wireguard/backup?tunnel=wg0` (default), `?tunnel=all` for a single JSON file with `{ "_format": "...", "tunnels": { "wg0": {...}, "wg1": {...} } }`. Restore that file via **`PUT /api/wireguard/restore`**; the server detects the multi-tunnel format and restores every listed tunnel.
+* **Web UI:** **Tunnels / Peers / Settings** tabs; on **Peers**, a tunnel selector appears when more than one tunnel exists; client API paths are `/api/wireguard/{tunnel}/client/...` (legacy `/api/wireguard/client/...` stays on **`wg0`**).
+* **Web UI session API** (same browser session cookie / password gate as other `/api/*` routes, no `X-API-Key`):
+  - `GET /api/wireguard/tunnel` — array of tunnel summaries (`name`, `listen_port`, `address`, `peer_count`, Amnezia `config`, …).
+  - `POST /api/wireguard/tunnels/sync` — JSON `{ "tunnels": [ … ] }`; each item follows the same tunnel shape as the compat `sync_tunnels` action (see below).
+  - `POST /api/wireguard/tunnels/add` — JSON `{ "tunnel": { … }, "overwrite": false }` for add/merge payloads (interface `name`, optional `listenport`, optional `addresses`).
+  - `POST /api/wireguard/tunnels/reset` — JSON `{ "tunnel": "wg0" }` to regenerate Amnezia obfuscation parameters for that interface.
+  - `DELETE /api/wireguard/tunnels/:tunnel` — remove a tunnel’s on-disk config and interface (cannot delete the **last** remaining tunnel).
+  - `GET /api/server-settings` / `PUT /api/server-settings` — read or update **runtime** overrides stored in `{WG_PATH}/wg-easy-server-settings.json` (optional keys: `wgHost`, `wgDefaultDns`, `compatApiEnabled`). Omitted keys follow `.env` (`WG_HOST`, `WG_DEFAULT_DNS`, `AMNEZIA_API_ENABLED`). The **Settings** tab can toggle the pfSense-compatible API and override the public endpoint host and client DNS line without editing the container environment.
+* **Backup:** The Web UI downloads **`GET /api/wireguard/backup?tunnel=all`**, a single JSON file with `{ "_format": "...", "tunnels": { "wg0": {...}, "wg1": {...} } }` (one tunnel is still exported in this shape). The API also accepts **`?tunnel=wg0`** (default when omitted) for a single-interface file. Restore via **`PUT /api/wireguard/restore`**; the server detects the multi-tunnel format and restores every listed tunnel.
 
 **Docker / Compose:** map every UDP port WireGuard listens on — either **`-p start-end:start-end/udp`** (see **`WG_UDP_PORT_RANGE`** in [`.env.example`](./.env.example) and [`docker-compose.yml`](./docker-compose.yml)) or separate lines per port, e.g. `-p 51820:51820/udp -p 51821:51821/udp`, plus the Web UI TCP port (`PORT`).
 

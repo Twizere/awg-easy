@@ -115,10 +115,56 @@ class API {
     });
   }
 
+  async getServerSettings() {
+    return this.call({
+      method: 'get',
+      path: '/server-settings',
+    });
+  }
+
+  async putServerSettings(body) {
+    return this.call({
+      method: 'put',
+      path: '/server-settings',
+      body,
+    });
+  }
+
   async listTunnels() {
     return this.call({
       method: 'get',
       path: '/wireguard/tunnel',
+    });
+  }
+
+  async syncTunnels(tunnels) {
+    return this.call({
+      method: 'post',
+      path: '/wireguard/tunnels/sync',
+      body: { tunnels },
+    });
+  }
+
+  async addTunnel(tunnel, overwrite = false) {
+    return this.call({
+      method: 'post',
+      path: '/wireguard/tunnels/add',
+      body: { tunnel, overwrite },
+    });
+  }
+
+  async resetTunnelObfuscation(tunnelName) {
+    return this.call({
+      method: 'post',
+      path: '/wireguard/tunnels/reset',
+      body: { tunnel: tunnelName },
+    });
+  }
+
+  async deleteTunnel(tunnelName) {
+    return this.call({
+      method: 'delete',
+      path: `/wireguard/tunnels/${encodeURIComponent(tunnelName)}`,
     });
   }
 

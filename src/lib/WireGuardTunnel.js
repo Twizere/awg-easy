@@ -10,13 +10,12 @@ const CRC32 = require('crc-32');
 
 const Util = require('./Util');
 const ServerError = require('./ServerError');
+const ServerSettings = require('./ServerSettings');
 
 const {
   WG_PATH,
-  WG_HOST,
   WG_PORT,
   WG_MTU,
-  WG_DEFAULT_DNS,
   WG_DEFAULT_ADDRESS,
   WG_PERSISTENT_KEEPALIVE,
   WG_ALLOWED_IPS,
@@ -58,8 +57,8 @@ module.exports = class WireGuardTunnel {
 
   async __buildConfig() {
     this.__configPromise = Promise.resolve().then(async () => {
-      if (!WG_HOST) {
-        throw new Error('WG_HOST Environment Variable Not Set!');
+      if (!ServerSettings.getEffectiveWgHost()) {
+        throw new Error('WG_HOST is not set: configure it in the environment or in the Web UI Settings.');
       }
 
       debug('Loading configuration...');
@@ -296,12 +295,14 @@ ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
   async getClientConfiguration({ clientId }) {
     const config = await this.getConfig();
     const client = await this.getClient({ clientId });
+    const effDns = ServerSettings.getEffectiveWgDefaultDns();
+    const effHost = ServerSettings.getEffectiveWgHost();
 
     return `
 [Interface]
 PrivateKey = ${client.privateKey ? `${client.privateKey}` : 'REPLACE_ME'}
 Address = ${client.address}/24
-${WG_DEFAULT_DNS ? `DNS = ${WG_DEFAULT_DNS}\n` : ''}\
+${effDns ? `DNS = ${effDns}\n` : ''}\
 ${WG_MTU ? `MTU = ${WG_MTU}\n` : ''}\
 Jc = ${config.server.jc}
 Jmin = ${config.server.jmin}
@@ -318,7 +319,7 @@ PublicKey = ${config.server.publicKey}
 ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
 }AllowedIPs = ${WG_ALLOWED_IPS}
 PersistentKeepalive = ${WG_PERSISTENT_KEEPALIVE}
-Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
+Endpoint = ${effHost}:${this.__effectiveListenPort(config)}`;
   }
 
   async getClientQRCodeSVG({ clientId }) {
@@ -667,15 +668,16 @@ Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
     const config = await this.getConfig();
     const s = config.server;
     const peerCount = Object.keys(config.clients).length;
-    const dnsServers = typeof WG_DEFAULT_DNS === 'string' && WG_DEFAULT_DNS.trim()
-      ? WG_DEFAULT_DNS.split(',').map((x) => x.trim()).filter(Boolean)
+    const dnsRaw = ServerSettings.getEffectiveWgDefaultDns();
+    const dnsServers = typeof dnsRaw === 'string' && dnsRaw.trim()
+      ? dnsRaw.split(',').map((x) => x.trim()).filter(Boolean)
       : [];
     return {
       name: this.ifName,
       description: this.ifName,
       public_key: s.publicKey,
       address: [`${s.address}/24`],
-      public_ip: WG_HOST,
+      public_ip: ServerSettings.getEffectiveWgHost(),
       listen_port: this.__effectiveListenPort(config),
       dns: dnsServers,
       config: {

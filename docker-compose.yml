@@ -3,6 +3,9 @@ volumes:
 
 services:
   amnezia-wg-easy:
+    # Base image is amd64-only; on Apple Silicon / arm64 hosts Docker emulates — set explicitly to avoid the
+    # "platform does not match" warning and document intent.
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile

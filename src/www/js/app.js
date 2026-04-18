@@ -103,9 +103,29 @@ new Vue({
 
     compatApi: null,
 
-    /** @type {{ name: string }[]} */
+    serverSettings: null,
+    settingsCompatMode: 'env',
+    settingsWgHost: '',
+    settingsWgDns: '',
+    settingsSaving: false,
+
+    /** @type {object[]} */
     tunnelsList: [],
     selectedTunnel: localStorage.getItem('wgEasyTunnel') || 'wg0',
+
+    activeTab: (() => {
+      try {
+        return localStorage.getItem('wgEasyTab') || 'peers';
+      } catch {
+        return 'peers';
+      }
+    })(),
+    tunnelModalOpen: false,
+    tunnelModalMode: 'add',
+    tunnelFormName: '',
+    tunnelFormListenPort: '',
+    tunnelFormAddressCidr: '',
+    tunnelDelete: null,
 
     uiShowCharts: localStorage.getItem('uiShowCharts') === '1',
     uiTheme: localStorage.theme || 'auto',
@@ -208,6 +228,18 @@ new Vue({
     } = {}) {
       if (!this.authenticated) return;
 
+      try {
+        const list = await this.api.listTunnels();
+        this.applyTunnelListFromApi(list);
+      } catch (err) {
+        console.error(err);
+        this.tunnelsList = [{ name: 'wg0' }];
+        this.selectedTunnel = 'wg0';
+        try {
+          localStorage.setItem('wgEasyTunnel', 'wg0');
+        } catch (_) {}
+      }
+
       this.api.tunnel = this.selectedTunnel;
       const clients = await this.api.getClients();
       this.clients = clients.map((client) => {
@@ -291,6 +323,9 @@ new Vue({
           this.requiresPassword = session.requiresPassword;
           return this.refresh();
         })
+        .then(() => {
+          this.loadServerSettings().catch(console.error);
+        })
         .catch((err) => {
           alert(err.message || err.toString());
         })
@@ -372,10 +407,194 @@ new Vue({
       }
     },
     onTunnelChange() {
-      localStorage.setItem('wgEasyTunnel', this.selectedTunnel);
+      try {
+        localStorage.setItem('wgEasyTunnel', this.selectedTunnel);
+      } catch (_) {}
       this.api.tunnel = this.selectedTunnel;
       this.clientsPersist = {};
       this.refresh().catch(console.error);
+    },
+    applyTunnelListFromApi(list) {
+      this.tunnelsList = Array.isArray(list) ? list : [];
+      const names = this.tunnelsList.map((x) => x.name).filter(Boolean);
+      if (!names.includes(this.selectedTunnel) && names.length) {
+        this.selectedTunnel = names[0];
+        try {
+          localStorage.setItem('wgEasyTunnel', this.selectedTunnel);
+        } catch (_) {}
+      }
+      if (this.api) this.api.tunnel = this.selectedTunnel;
+    },
+    setActiveTab(tab) {
+      this.activeTab = tab;
+      try {
+        localStorage.setItem('wgEasyTab', tab);
+      } catch (_) {}
+      if (tab === 'settings' && this.authenticated) {
+        this.loadServerSettings().catch(console.error);
+      }
+    },
+    async loadServerSettings() {
+      if (!this.api || !this.authenticated) return;
+      try {
+        const data = await this.api.getServerSettings();
+        this.serverSettings = data;
+        const o = data.overrides;
+        if (o.compatApiEnabled === null || o.compatApiEnabled === undefined) {
+          this.settingsCompatMode = 'env';
+        } else {
+          this.settingsCompatMode = o.compatApiEnabled ? 'on' : 'off';
+        }
+        this.settingsWgHost = o.wgHost != null ? o.wgHost : '';
+        this.settingsWgDns = o.wgDefaultDns != null ? o.wgDefaultDns : '';
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    async saveServerSettings() {
+      if (!this.api || this.settingsSaving) return;
+      this.settingsSaving = true;
+      try {
+        let compatApiEnabled;
+        if (this.settingsCompatMode === 'env') compatApiEnabled = null;
+        else if (this.settingsCompatMode === 'on') compatApiEnabled = true;
+        else compatApiEnabled = false;
+        const body = {
+          compatApiEnabled,
+          wgHost: this.settingsWgHost.trim() === '' ? null : this.settingsWgHost.trim(),
+          wgDefaultDns: this.settingsWgDns.trim() === '' ? null : this.settingsWgDns.trim(),
+        };
+        const res = await this.api.putServerSettings(body);
+        if (res && res.effective) {
+          this.serverSettings = {
+            env: res.env,
+            overrides: res.overrides,
+            effective: res.effective,
+          };
+        }
+        this.compatApi = await this.api.getCompatApiStatus();
+      } catch (e) {
+        alert(e.message || e.toString());
+      } finally {
+        this.settingsSaving = false;
+      }
+    },
+    tabBtnClass(tab) {
+      const base = 'px-3 py-2 text-sm font-medium border-b-2 transition -mb-px';
+      const active = this.activeTab === tab
+        ? 'border-red-800 dark:border-red-400 text-red-800 dark:text-red-300'
+        : 'border-transparent text-gray-500 dark:text-neutral-400 hover:text-gray-800 dark:hover:text-neutral-200';
+      return `${base} ${active}`;
+    },
+    tunnelRowAddress(t) {
+      if (!t || t.address == null) return '—';
+      const a = t.address;
+      if (Array.isArray(a) && a[0]) return String(a[0]);
+      if (typeof a === 'string' && a) return a;
+      return '—';
+    },
+    parseLanCidrToAddresses(str) {
+      const s = String(str || '').trim();
+      if (!s) return undefined;
+      const i = s.indexOf('/');
+      if (i === -1) {
+        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(s)) return [{ address: s, mask: 24 }];
+        return undefined;
+      }
+      const address = s.slice(0, i).trim();
+      const mask = parseInt(s.slice(i + 1), 10);
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(address) || !Number.isFinite(mask) || mask < 0 || mask > 32) return undefined;
+      return [{ address, mask }];
+    },
+    isValidTunnelNameClient(name) {
+      return typeof name === 'string' && /^[a-zA-Z0-9_-]{1,15}$/.test(name.trim());
+    },
+    openTunnelModal(mode, row) {
+      this.tunnelModalMode = mode;
+      if (mode === 'add') {
+        this.tunnelFormName = '';
+        this.tunnelFormListenPort = '';
+        this.tunnelFormAddressCidr = '';
+      } else if (row) {
+        this.tunnelFormName = row.name || '';
+        const lp = row.listen_port;
+        this.tunnelFormListenPort = lp != null && lp !== '' ? String(lp) : '';
+        const addr = this.tunnelRowAddress(row);
+        this.tunnelFormAddressCidr = addr !== '—' ? addr : '';
+      }
+      this.tunnelModalOpen = true;
+    },
+    closeTunnelModal() {
+      this.tunnelModalOpen = false;
+    },
+    async submitTunnelModal() {
+      const name = String(this.tunnelFormName || '').trim();
+      if (!this.isValidTunnelNameClient(name)) {
+        alert('Invalid interface name (1–15 characters: letters, digits, _, -).');
+        return;
+      }
+      const lp = String(this.tunnelFormListenPort || '').trim();
+      const cidr = String(this.tunnelFormAddressCidr || '').trim();
+      try {
+        if (this.tunnelModalMode === 'add') {
+          const body = { name, enabled: true };
+          if (lp) body.listenport = lp;
+          const addrs = this.parseLanCidrToAddresses(cidr);
+          if (addrs) body.addresses = addrs;
+          const list = await this.api.addTunnel(body, false);
+          this.applyTunnelListFromApi(list);
+        } else {
+          const spec = { name };
+          if (lp) spec.listen_port = lp;
+          if (cidr) spec.address = [cidr];
+          const list = await this.api.syncTunnels([spec]);
+          this.applyTunnelListFromApi(list);
+        }
+        this.closeTunnelModal();
+        await this.refresh({ updateCharts: this.updateCharts });
+      } catch (err) {
+        alert(err.message || err.toString());
+      }
+    },
+    useTunnelForPeers(ifName) {
+      if (!ifName) return;
+      this.selectedTunnel = ifName;
+      try {
+        localStorage.setItem('wgEasyTunnel', ifName);
+      } catch (_) {}
+      this.api.tunnel = ifName;
+      this.clientsPersist = {};
+      this.setActiveTab('peers');
+      this.refresh().catch(console.error);
+    },
+    async confirmResetTunnel(t) {
+      if (!t || !t.name) return;
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(`Reset obfuscation for ${t.name}?`)) return;
+      try {
+        await this.api.resetTunnelObfuscation(t.name);
+        const list = await this.api.listTunnels();
+        this.applyTunnelListFromApi(list);
+        await this.refresh({ updateCharts: this.updateCharts });
+      } catch (err) {
+        alert(err.message || err.toString());
+      }
+    },
+    requestDeleteTunnel(t) {
+      this.tunnelDelete = t;
+    },
+    async doDeleteTunnel() {
+      const t = this.tunnelDelete;
+      if (!t || !t.name) return;
+      try {
+        await this.api.deleteTunnel(t.name);
+        this.tunnelDelete = null;
+        const list = await this.api.listTunnels();
+        this.applyTunnelListFromApi(list);
+        await this.refresh({ updateCharts: this.updateCharts });
+      } catch (err) {
+        alert(err.message || err.toString());
+      }
     },
     toggleTheme() {
       const themes = ['light', 'dark', 'auto'];
@@ -426,13 +645,13 @@ new Vue({
         this.requiresPassword = session.requiresPassword;
         return this.api.listTunnels()
           .then((list) => {
-            this.tunnelsList = Array.isArray(list) ? list : [];
-            const saved = localStorage.getItem('wgEasyTunnel');
-            if (saved && this.tunnelsList.some((x) => x.name === saved)) {
-              this.selectedTunnel = saved;
-            } else if (this.tunnelsList.length && this.tunnelsList[0].name) {
-              this.selectedTunnel = this.tunnelsList[0].name;
-            }
+            this.applyTunnelListFromApi(list);
+            try {
+              const saved = localStorage.getItem('wgEasyTunnel');
+              if (saved && this.tunnelsList.some((x) => x.name === saved)) {
+                this.selectedTunnel = saved;
+              }
+            } catch (_) {}
             this.api.tunnel = this.selectedTunnel;
           })
           .catch(() => {
@@ -443,6 +662,9 @@ new Vue({
           }))
           .catch((err) => {
             alert(err.message || err.toString());
+          })
+          .finally(() => {
+            if (this.authenticated) this.loadServerSettings().catch(console.error);
           });
       })
       .catch((err) => {

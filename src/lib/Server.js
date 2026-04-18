@@ -49,6 +49,7 @@ const {
   processAmneziaCompatRequest,
 } = require('./amneziaCompatApi');
 const Util = require('./Util');
+const ServerSettings = require('./ServerSettings');
 
 const requiresPassword = !!PASSWORD_HASH;
 const requiresPrometheusPassword = !!PROMETHEUS_METRICS_PASSWORD;
@@ -304,6 +305,19 @@ module.exports = class Server {
         debug(`Deleted Session: ${sessionId}`);
         return { success: true };
       }))
+      .get('/api/server-settings', defineEventHandler(() => ServerSettings.getPublicPayload()))
+      .put('/api/server-settings', defineEventHandler(async (event) => {
+        const body = await readBody(event);
+        try {
+          ServerSettings.applyUpdates(body && typeof body === 'object' ? body : {});
+          return { success: true, ...ServerSettings.getPublicPayload() };
+        } catch (err) {
+          throw createError({
+            status: 400,
+            message: err.message || 'Invalid server settings',
+          });
+        }
+      }))
       .get('/api/wireguard/client', defineEventHandler(() => {
         return WireGuard.getClients();
       }))
@@ -392,6 +406,29 @@ module.exports = class Server {
         const { expireDate } = await readBody(event);
         await WireGuard.updateClientExpireDate({ clientId, expireDate });
         return { success: true };
+      }))
+
+      .post('/api/wireguard/tunnels/sync', defineEventHandler(async (event) => {
+        const { tunnels } = await readBody(event);
+        return WireGuard.syncServerTunnels(tunnels ?? []);
+      }))
+      .post('/api/wireguard/tunnels/add', defineEventHandler(async (event) => {
+        const body = await readBody(event);
+        const tunnel = body && body.tunnel;
+        const overwrite = !!(body && body.overwrite);
+        return WireGuard.mergeServerTunnelFromAdd(tunnel || {}, overwrite);
+      }))
+      .post('/api/wireguard/tunnels/reset', defineEventHandler(async (event) => {
+        const { tunnel } = await readBody(event);
+        if (!tunnel || typeof tunnel !== 'string') {
+          throw createError({ status: 400, message: 'tunnel name is required' });
+        }
+        return WireGuard.resetTunnelObfuscation(tunnel);
+      }))
+      .delete('/api/wireguard/tunnels/:tunnel', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        assertSafeTunnelName(tunnel);
+        return WireGuard.deleteTunnel(tunnel);
       }))
 
       .get('/api/wireguard/tunnel', defineEventHandler(async () => {
