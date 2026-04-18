@@ -309,7 +309,11 @@ module.exports = class Server {
       .put('/api/server-settings', defineEventHandler(async (event) => {
         const body = await readBody(event);
         try {
-          ServerSettings.applyUpdates(body && typeof body === 'object' ? body : {});
+          const b = body && typeof body === 'object' ? body : {};
+          ServerSettings.applyUpdates(b);
+          if (Object.prototype.hasOwnProperty.call(b, 'vpnEnabled')) {
+            await WireGuard.reconcileVpnStateFromSettings();
+          }
           return { success: true, ...ServerSettings.getPublicPayload() };
         } catch (err) {
           throw createError({
@@ -429,6 +433,15 @@ module.exports = class Server {
         const tunnel = getRouterParam(event, 'tunnel');
         assertSafeTunnelName(tunnel);
         return WireGuard.deleteTunnel(tunnel);
+      }))
+      .put('/api/wireguard/tunnels/:tunnel/enabled', defineEventHandler(async (event) => {
+        const tunnel = getRouterParam(event, 'tunnel');
+        assertSafeTunnelName(tunnel);
+        const body = await readBody(event);
+        if (!body || typeof body !== 'object' || typeof body.enabled !== 'boolean') {
+          throw createError({ status: 400, message: 'Body must be JSON { "enabled": true|false }' });
+        }
+        return WireGuard.setTunnelEnabled(tunnel, body.enabled);
       }))
 
       .get('/api/wireguard/tunnel', defineEventHandler(async () => {

@@ -168,6 +168,14 @@ class API {
     });
   }
 
+  async putTunnelEnabled(tunnelName, enabled) {
+    return this.call({
+      method: 'put',
+      path: `/wireguard/tunnels/${encodeURIComponent(tunnelName)}/enabled`,
+      body: { enabled: !!enabled },
+    });
+  }
+
   async getClients() {
     return this.call({
       method: 'get',

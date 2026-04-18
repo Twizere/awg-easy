@@ -97,6 +97,11 @@ module.exports = class WireGuardTunnel {
           clients: {},
         };
         debug('Configuration generated.');
+        config.tunnelEnabled = true;
+      }
+
+      if (config.tunnelEnabled === undefined) {
+        config.tunnelEnabled = true;
       }
 
       return config;
@@ -105,24 +110,35 @@ module.exports = class WireGuardTunnel {
     return this.__configPromise;
   }
 
+  invalidateCache() {
+    this.__configPromise = null;
+  }
+
+  __shouldBringUp(config) {
+    return ServerSettings.getEffectiveVpnEnabled() && config.tunnelEnabled !== false;
+  }
+
+  async __applyKernelState(config) {
+    await Util.exec(`wg-quick down ${this.ifName}`).catch(() => {});
+    if (!this.__shouldBringUp(config)) {
+      return;
+    }
+    await Util.exec(`wg-quick up ${this.ifName}`).catch((err) => {
+      if (err && err.message && err.message.includes(`Cannot find device "${this.ifName}"`)) {
+        throw new Error(`WireGuard exited with the error: Cannot find device "${this.ifName}"\nThis usually means that your host's kernel does not support WireGuard!`);
+      }
+
+      throw err;
+    });
+    await this.__syncConfig();
+  }
+
   async getConfig() {
     if (!this.__configPromise) {
       const config = await this.__buildConfig();
 
       await this.__saveConfig(config);
-      await Util.exec(`wg-quick down ${this.ifName}`).catch(() => {});
-      await Util.exec(`wg-quick up ${this.ifName}`).catch((err) => {
-        if (err && err.message && err.message.includes(`Cannot find device "${this.ifName}"`)) {
-          throw new Error(`WireGuard exited with the error: Cannot find device "${this.ifName}"\nThis usually means that your host's kernel does not support WireGuard!`);
-        }
-
-        throw err;
-      });
-      // await Util.exec(`iptables -t nat -A POSTROUTING -s ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 -o ' + WG_DEVICE + ' -j MASQUERADE`);
-      // await Util.exec('iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT');
-      // await Util.exec('iptables -A FORWARD -i wg0 -j ACCEPT');
-      // await Util.exec('iptables -A FORWARD -o wg0 -j ACCEPT');
-      await this.__syncConfig();
+      await this.__applyKernelState(config);
     }
 
     return this.__configPromise;
@@ -131,7 +147,17 @@ module.exports = class WireGuardTunnel {
   async saveConfig() {
     const config = await this.getConfig();
     await this.__saveConfig(config);
-    await this.__syncConfig();
+    if (this.__shouldBringUp(config)) {
+      await this.__syncConfig();
+    }
+  }
+
+  async setTunnelEnabled(enabled) {
+    const config = await this.getConfig();
+    config.tunnelEnabled = !!enabled;
+    await this.__saveConfig(config);
+    this.invalidateCache();
+    await this.getConfig();
   }
 
   __effectiveListenPort(config) {
@@ -223,6 +249,16 @@ ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
     debug('Config synced.');
   }
 
+  async __wgShowDumpSafe() {
+    try {
+      return await Util.exec(`wg show ${this.ifName} dump`, {
+        log: false,
+      });
+    } catch {
+      return '';
+    }
+  }
+
   async getClients() {
     const config = await this.getConfig();
     const clients = Object.entries(config.clients).map(([clientId, client]) => ({
@@ -247,10 +283,8 @@ ${client.preSharedKey ? `PresharedKey = ${client.preSharedKey}\n` : ''
       endpoint: null,
     }));
 
-    // Loop WireGuard status
-    const dump = await Util.exec(`wg show ${this.ifName} dump`, {
-      log: false,
-    });
+    // Loop WireGuard status (interface may be down)
+    const dump = await this.__wgShowDumpSafe();
     dump
       .trim()
       .split('\n')
@@ -470,19 +504,18 @@ Endpoint = ${effHost}:${this.__effectiveListenPort(config)}`;
     await this.saveConfig();
   }
 
-  async __reloadConfig() {
-    await this.__buildConfig();
-    await this.__syncConfig();
-  }
-
   async restoreConfiguration(config) {
     debug('Starting configuration restore process.');
     const _config = JSON.parse(config);
     if (_config.server && _config.server.listenPort != null && String(_config.server.listenPort).trim() !== '') {
       Util.assertListenPortInPublishedUdpRange(_config.server.listenPort);
     }
+    if (_config.tunnelEnabled === undefined) {
+      _config.tunnelEnabled = true;
+    }
     await this.__saveConfig(_config);
-    await this.__reloadConfig();
+    this.invalidateCache();
+    await this.getConfig();
     debug('Configuration restore process completed.');
   }
 
@@ -672,6 +705,9 @@ Endpoint = ${effHost}:${this.__effectiveListenPort(config)}`;
     const dnsServers = typeof dnsRaw === 'string' && dnsRaw.trim()
       ? dnsRaw.split(',').map((x) => x.trim()).filter(Boolean)
       : [];
+    const tunnelEnabled = config.tunnelEnabled !== false;
+    const vpnGlobal = ServerSettings.getEffectiveVpnEnabled();
+    const running = tunnelEnabled && vpnGlobal;
     return {
       name: this.ifName,
       description: this.ifName,
@@ -692,15 +728,16 @@ Endpoint = ${effHost}:${this.__effectiveListenPort(config)}`;
         h4: Number(s.h4),
       },
       peer_count: peerCount,
-      enabled: true,
+      tunnel_enabled: tunnelEnabled,
+      vpn_globally_enabled: vpnGlobal,
+      running,
+      enabled: running,
     };
   }
 
   async getConnectedPeersCompat() {
     const config = await this.getConfig();
-    const dump = await Util.exec(`wg show ${this.ifName} dump`, {
-      log: false,
-    });
+    const dump = await this.__wgShowDumpSafe();
     const lines = dump.trim().split('\n').slice(1);
     const byPub = Object.fromEntries(
       Object.values(config.clients).map((c) => [c.publicKey, c]),
@@ -785,7 +822,12 @@ Endpoint = ${effHost}:${this.__effectiveListenPort(config)}`;
       Util.assertListenPortInPublishedUdpRange(p);
       config.server.listenPort = p;
     }
-    await this.saveConfig();
+    if (typeof spec.enabled === 'boolean') {
+      config.tunnelEnabled = spec.enabled;
+    }
+    await this.__saveConfig(config);
+    this.invalidateCache();
+    await this.getConfig();
   }
 
   async mergeAddTunnelFormat(tunnelData) {
@@ -811,10 +853,12 @@ Endpoint = ${effHost}:${this.__effectiveListenPort(config)}`;
       Util.assertListenPortInPublishedUdpRange(p);
       config.server.listenPort = p;
     }
-    if (tunnelData.enabled === false) {
-      throw new ServerError(`Disabling tunnel ${this.ifName} is not supported`, 400);
+    if (typeof tunnelData.enabled === 'boolean') {
+      config.tunnelEnabled = tunnelData.enabled;
     }
-    await this.saveConfig();
+    await this.__saveConfig(config);
+    this.invalidateCache();
+    await this.getConfig();
   }
 
   async resetObfuscationAndReturnSummary() {

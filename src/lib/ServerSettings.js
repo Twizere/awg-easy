@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Runtime overrides for WG_HOST, WG_DEFAULT_DNS, and AMNEZIA_API_ENABLED.
+ * Runtime overrides for WG_HOST, WG_DEFAULT_DNS, AMNEZIA_VPN_ENABLED, and AMNEZIA_API_ENABLED.
  * Persisted to `{WG_PATH}/wg-easy-server-settings.json` so the Web UI can change them without editing .env.
  * Omitted keys fall back to environment (see config.js).
  */
@@ -13,6 +13,7 @@ const {
   WG_PATH,
   WG_HOST,
   WG_DEFAULT_DNS,
+  AMNEZIA_VPN_ENABLED,
   AMNEZIA_API_ENABLED,
 } = require('../config');
 
@@ -70,6 +71,14 @@ function getEffectiveCompatApiEnabled() {
   return AMNEZIA_API_ENABLED;
 }
 
+function getEffectiveVpnEnabled() {
+  const s = getRaw();
+  if (Object.prototype.hasOwnProperty.call(s, 'vpnEnabled')) {
+    return !!s.vpnEnabled;
+  }
+  return AMNEZIA_VPN_ENABLED;
+}
+
 function hasCompatApiOverride() {
   return Object.prototype.hasOwnProperty.call(getRaw(), 'compatApiEnabled');
 }
@@ -84,22 +93,29 @@ function hasWgDefaultDnsOverride() {
   return s.wgDefaultDns != null && String(s.wgDefaultDns).trim() !== '';
 }
 
+function hasVpnEnabledOverride() {
+  return Object.prototype.hasOwnProperty.call(getRaw(), 'vpnEnabled');
+}
+
 /** Public snapshot for GET /api/server-settings */
 function getPublicPayload() {
   return {
     env: {
       wgHost: WG_HOST || '',
       wgDefaultDns: WG_DEFAULT_DNS || '',
+      vpnEnabled: AMNEZIA_VPN_ENABLED,
       compatApiEnabled: AMNEZIA_API_ENABLED,
     },
     overrides: {
       wgHost: hasWgHostOverride() ? String(getRaw().wgHost).trim() : null,
       wgDefaultDns: hasWgDefaultDnsOverride() ? String(getRaw().wgDefaultDns).trim() : null,
+      vpnEnabled: hasVpnEnabledOverride() ? !!getRaw().vpnEnabled : null,
       compatApiEnabled: hasCompatApiOverride() ? !!getRaw().compatApiEnabled : null,
     },
     effective: {
       wgHost: getEffectiveWgHost() || '',
       wgDefaultDns: getEffectiveWgDefaultDns() || '',
+      vpnEnabled: getEffectiveVpnEnabled(),
       compatApiEnabled: getEffectiveCompatApiEnabled(),
     },
   };
@@ -131,10 +147,20 @@ function assertValidDnsList(value) {
 }
 
 /**
- * @param {{ compatApiEnabled?: boolean|null, wgHost?: string|null, wgDefaultDns?: string|null }} body
+ * @param {{ compatApiEnabled?: boolean|null, vpnEnabled?: boolean|null, wgHost?: string|null, wgDefaultDns?: string|null }} body
  */
 function applyUpdates(body) {
   const cur = { ...getRaw() };
+
+  if (Object.prototype.hasOwnProperty.call(body, 'vpnEnabled')) {
+    if (body.vpnEnabled === null) {
+      delete cur.vpnEnabled;
+    } else if (typeof body.vpnEnabled === 'boolean') {
+      cur.vpnEnabled = body.vpnEnabled;
+    } else {
+      throw new Error('vpnEnabled must be boolean or null');
+    }
+  }
 
   if (Object.prototype.hasOwnProperty.call(body, 'compatApiEnabled')) {
     if (body.compatApiEnabled === null) {
@@ -175,6 +201,7 @@ function applyUpdates(body) {
 module.exports = {
   getEffectiveWgHost,
   getEffectiveWgDefaultDns,
+  getEffectiveVpnEnabled,
   getEffectiveCompatApiEnabled,
   getPublicPayload,
   applyUpdates,

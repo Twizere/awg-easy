@@ -260,6 +260,37 @@ module.exports = class TunnelRegistry {
     return this.getTunnelSummaries();
   }
 
+  /**
+   * Re-apply kernel state for every tunnel after global VPN enable/disable (server settings).
+   */
+  async reconcileVpnStateFromSettings() {
+    await this.ensureInitialized().catch(() => {});
+    const names = [...this.orderedTunnelNames];
+    for (const n of names) {
+      (await this.getTunnel(n)).invalidateCache();
+    }
+    for (const n of names) {
+      await (await this.getTunnel(n)).getConfig();
+    }
+  }
+
+  /**
+   * Persist per-tunnel `tunnelEnabled` and bring interface up or down.
+   * @param {string} ifName
+   * @param {boolean} enabled
+   */
+  async setTunnelEnabled(ifName, enabled) {
+    if (!Util.isValidTunnelInterfaceName(ifName)) {
+      throw new ServerError(`Invalid tunnel name: ${ifName}`, 400);
+    }
+    await this.ensureInitialized();
+    if (!this.orderedTunnelNames.includes(ifName)) {
+      throw new ServerError(`Tunnel '${ifName}' not found`, 404);
+    }
+    await (await this.getTunnel(ifName)).setTunnelEnabled(!!enabled);
+    return (await this.getTunnel(ifName)).getTunnelSummary();
+  }
+
   async deleteTunnel(ifName) {
     if (!Util.isValidTunnelInterfaceName(ifName)) {
       throw new ServerError(`Invalid tunnel name: ${ifName}`, 400);

@@ -112,6 +112,7 @@
               <thead class="text-xs uppercase bg-gray-50 dark:bg-neutral-800 text-gray-500 dark:text-neutral-400">
                 <tr>
                   <th scope="col" class="px-4 py-3">{{ $t('tunnelInterface') }}</th>
+                  <th scope="col" class="px-4 py-3">{{ $t('tunnelOn') }}</th>
                   <th scope="col" class="px-4 py-3">{{ $t('tunnelListenPort') }}</th>
                   <th scope="col" class="px-4 py-3">{{ $t('tunnelAddress') }}</th>
                   <th scope="col" class="px-4 py-3">{{ $t('tunnelPeers') }}</th>
@@ -121,14 +122,54 @@
               <tbody>
                 <tr v-for="t in tunnelsList" :key="t.name" class="border-b border-gray-100 dark:border-neutral-600">
                   <td class="px-4 py-3 font-mono">{{ t.name }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" class="rounded border-gray-300 dark:border-neutral-500 text-red-800 focus:ring-red-800"
+                        :checked="t.tunnel_enabled !== false"
+                        :disabled="tunnelToggleBusy[t.name]"
+                        @change="onTunnelEnabledChange(t, $event)" />
+                      <span v-if="serverSettings && serverSettings.effective && t.tunnel_enabled !== false && t.running === false" class="text-xs text-amber-700 dark:text-amber-400" :title="$t('tunnelWaitingVpn')">{{ $t('tunnelPaused') }}</span>
+                    </label>
+                  </td>
                   <td class="px-4 py-3">{{ t.listen_port != null && t.listen_port !== '' ? t.listen_port : '—' }}</td>
                   <td class="px-4 py-3 font-mono text-xs break-all">{{ tunnelRowAddress(t) }}</td>
                   <td class="px-4 py-3">{{ t.peer_count != null ? t.peer_count : '—' }}</td>
                   <td class="px-4 py-3 text-right whitespace-nowrap">
-                    <button type="button" class="text-red-800 dark:text-red-300 hover:underline mr-2 text-xs" @click="useTunnelForPeers(t.name)">{{ $t('useForPeers') }}</button>
-                    <button type="button" class="text-red-800 dark:text-red-300 hover:underline mr-2 text-xs" @click="openTunnelModal('edit', t)">{{ $t('editTunnel') }}</button>
-                    <button type="button" class="text-red-800 dark:text-red-300 hover:underline mr-2 text-xs" @click="confirmResetTunnel(t)">{{ $t('resetObfuscation') }}</button>
-                    <button type="button" :disabled="tunnelsList.length <= 1" class="text-red-800 dark:text-red-300 hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed" @click="requestDeleteTunnel(t)">{{ $t('deleteTunnel') }}</button>
+                    <div class="inline-flex items-center justify-end gap-0.5" role="group" :aria-label="$t('tunnelActions')">
+                      <button type="button"
+                        class="p-1.5 rounded-md text-red-800 dark:text-red-300 hover:bg-gray-100 dark:hover:bg-neutral-600 focus:outline-none focus:ring-2 focus:ring-red-800/40 dark:focus:ring-red-400/40 transition"
+                        :title="$t('useForPeers')" :aria-label="$t('useForPeers')"
+                        @click="useTunnelForPeers(t.name)">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 10a3 3 0 11-6 0 3 3 0 016 0zm6.872 11.128A9.38 9.38 0 0018 21a9.338 9.338 0 00-3.113-.526 4.126 4.126 0 00-.23-1.128M18 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      </button>
+                      <button type="button"
+                        class="p-1.5 rounded-md text-red-800 dark:text-red-300 hover:bg-gray-100 dark:hover:bg-neutral-600 focus:outline-none focus:ring-2 focus:ring-red-800/40 dark:focus:ring-red-400/40 transition"
+                        :title="$t('editTunnel')" :aria-label="$t('editTunnel')"
+                        @click="openTunnelModal('edit', t)">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                        </svg>
+                      </button>
+                      <button type="button"
+                        class="p-1.5 rounded-md text-red-800 dark:text-red-300 hover:bg-gray-100 dark:hover:bg-neutral-600 focus:outline-none focus:ring-2 focus:ring-red-800/40 dark:focus:ring-red-400/40 transition"
+                        :title="$t('resetObfuscation')" :aria-label="$t('resetObfuscation')"
+                        @click="confirmResetTunnel(t)">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                      </button>
+                      <button type="button"
+                        :disabled="tunnelsList.length <= 1"
+                        class="p-1.5 rounded-md text-red-800 dark:text-red-300 hover:bg-gray-100 dark:hover:bg-neutral-600 focus:outline-none focus:ring-2 focus:ring-red-800/40 dark:focus:ring-red-400/40 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent transition"
+                        :title="$t('deleteTunnel')" :aria-label="$t('deleteTunnel')"
+                        @click="requestDeleteTunnel(t)">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.649 51.649 0 00-3.089 0C10.91 2.182 10 3.166 10 4.346v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -516,6 +557,15 @@
                 <span class="text-xs text-gray-500 dark:text-neutral-500">{{ $t('settingsGlobalScope') }}</span>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="sm:col-span-2 max-w-md">
+                  <label class="block text-xs text-gray-600 dark:text-neutral-400 mb-1" for="settingsVpnMode">{{ $t('settingsVpn') }}</label>
+                  <select id="settingsVpnMode" v-model="settingsVpnMode"
+                    class="w-full rounded border border-gray-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-gray-900 dark:text-neutral-200 py-2 px-3 text-sm">
+                    <option value="env">{{ $t('settingsCompatUseEnv') }}</option>
+                    <option value="on">{{ $t('settingsCompatForceOn') }}</option>
+                    <option value="off">{{ $t('settingsCompatForceOff') }}</option>
+                  </select>
+                </div>
                 <div>
                   <label class="block text-xs text-gray-600 dark:text-neutral-400 mb-1" for="settingsWgHost">WG_HOST</label>
                   <input id="settingsWgHost" v-model.trim="settingsWgHost" type="text" autocomplete="off" :placeholder="serverSettings && serverSettings.env ? serverSettings.env.wgHost : ''"
@@ -527,8 +577,8 @@
                     class="w-full rounded border border-gray-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-gray-900 dark:text-neutral-200 py-2 px-3 text-sm" />
                 </div>
               </div>
-              <p v-if="serverSettings && serverSettings.effective" class="text-xs text-gray-500 dark:text-neutral-500 font-mono truncate" :title="serverSettings.effective.wgHost + ' · ' + serverSettings.effective.wgDefaultDns">
-                {{ $t('settingsEffective') }}: {{ serverSettings.effective.wgHost }} · {{ serverSettings.effective.wgDefaultDns }}
+              <p v-if="serverSettings && serverSettings.effective" class="text-xs text-gray-500 dark:text-neutral-500 font-mono truncate" :title="'VPN ' + (serverSettings.effective.vpnEnabled ? $t('settingsCompatForceOn') : $t('settingsCompatForceOff')) + ' · ' + serverSettings.effective.wgHost + ' · ' + serverSettings.effective.wgDefaultDns">
+                {{ $t('settingsEffective') }}: {{ serverSettings.effective.vpnEnabled ? $t('settingsCompatForceOn') : $t('settingsCompatForceOff') }} · {{ serverSettings.effective.wgHost }} · {{ serverSettings.effective.wgDefaultDns }}
               </p>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                 <div class="sm:col-span-1">

@@ -105,9 +105,11 @@ new Vue({
 
     serverSettings: null,
     settingsCompatMode: 'env',
+    settingsVpnMode: 'env',
     settingsWgHost: '',
     settingsWgDns: '',
     settingsSaving: false,
+    tunnelToggleBusy: {},
 
     /** @type {object[]} */
     tunnelsList: [],
@@ -445,6 +447,11 @@ new Vue({
         } else {
           this.settingsCompatMode = o.compatApiEnabled ? 'on' : 'off';
         }
+        if (o.vpnEnabled === null || o.vpnEnabled === undefined) {
+          this.settingsVpnMode = 'env';
+        } else {
+          this.settingsVpnMode = o.vpnEnabled ? 'on' : 'off';
+        }
         this.settingsWgHost = o.wgHost != null ? o.wgHost : '';
         this.settingsWgDns = o.wgDefaultDns != null ? o.wgDefaultDns : '';
       } catch (e) {
@@ -459,8 +466,13 @@ new Vue({
         if (this.settingsCompatMode === 'env') compatApiEnabled = null;
         else if (this.settingsCompatMode === 'on') compatApiEnabled = true;
         else compatApiEnabled = false;
+        let vpnEnabled;
+        if (this.settingsVpnMode === 'env') vpnEnabled = null;
+        else if (this.settingsVpnMode === 'on') vpnEnabled = true;
+        else vpnEnabled = false;
         const body = {
           compatApiEnabled,
+          vpnEnabled,
           wgHost: this.settingsWgHost.trim() === '' ? null : this.settingsWgHost.trim(),
           wgDefaultDns: this.settingsWgDns.trim() === '' ? null : this.settingsWgDns.trim(),
         };
@@ -473,6 +485,7 @@ new Vue({
           };
         }
         this.compatApi = await this.api.getCompatApiStatus();
+        await this.refresh().catch(console.error);
       } catch (e) {
         alert(e.message || e.toString());
       } finally {
@@ -485,6 +498,20 @@ new Vue({
         ? 'border-red-800 dark:border-red-400 text-red-800 dark:text-red-300'
         : 'border-transparent text-gray-500 dark:text-neutral-400 hover:text-gray-800 dark:hover:text-neutral-200';
       return `${base} ${active}`;
+    },
+    async onTunnelEnabledChange(t, ev) {
+      if (!this.api || !t || !t.name) return;
+      const want = ev.target.checked;
+      this.$set(this.tunnelToggleBusy, t.name, true);
+      try {
+        await this.api.putTunnelEnabled(t.name, want);
+        await this.refresh();
+      } catch (e) {
+        alert(e.message || e.toString());
+        ev.target.checked = !want;
+      } finally {
+        this.$set(this.tunnelToggleBusy, t.name, false);
+      }
     },
     tunnelRowAddress(t) {
       if (!t || t.address == null) return '—';

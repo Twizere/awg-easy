@@ -99,6 +99,9 @@ module.exports.PROMETHEUS_METRICS_PASSWORD = process.env.PROMETHEUS_METRICS_PASS
 module.exports.DICEBEAR_TYPE = process.env.DICEBEAR_TYPE || false;
 module.exports.USE_GRAVATAR = process.env.USE_GRAVATAR || false;
 
+/** When "false", WireGuard interfaces stay down unless enabled in Web UI / server-settings.json */
+module.exports.AMNEZIA_VPN_ENABLED = process.env.AMNEZIA_VPN_ENABLED !== 'false';
+
 /** pfSense-style compat API: set to "true" to expose POST /api/compat/amnezia */
 module.exports.AMNEZIA_API_ENABLED = process.env.AMNEZIA_API_ENABLED === 'true';
 /** Required when AMNEZIA_API_ENABLED and AMNEZIA_API_AUTH=apikey */
