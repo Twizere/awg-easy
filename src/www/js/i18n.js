@@ -77,6 +77,8 @@ const messages = { // eslint-disable-line no-unused-vars
     settingsSaving: 'Saving…',
     settingsCompatEndpoints: 'POST with X-API-Key',
     settingsCompatOffHint: 'Enable above or set AMNEZIA_API_* in .env.',
+    settingsDnsPlaceholder: '1.1.1.1, 8.8.8.8',
+    settingsDnsInputTitle: 'Comma-separated DNS servers (max 8). Spaces after commas are optional.',
   },
   ua: {
     name: 'Ім`я',

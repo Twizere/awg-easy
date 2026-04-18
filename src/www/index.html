@@ -573,12 +573,14 @@
                 </div>
                 <div>
                   <label class="block text-xs text-gray-600 dark:text-neutral-400 mb-1" for="settingsWgDns">DNS</label>
-                  <input id="settingsWgDns" v-model.trim="settingsWgDns" type="text" autocomplete="off" :placeholder="serverSettings && serverSettings.env ? serverSettings.env.wgDefaultDns : ''"
+                  <input id="settingsWgDns" v-model.trim="settingsWgDns" type="text" autocomplete="off"
+                    :placeholder="settingsDnsPlaceholderResolved"
+                    :title="$t('settingsDnsInputTitle')"
                     class="w-full rounded border border-gray-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-gray-900 dark:text-neutral-200 py-2 px-3 text-sm" />
                 </div>
               </div>
-              <p v-if="serverSettings && serverSettings.effective" class="text-xs text-gray-500 dark:text-neutral-500 font-mono truncate" :title="'VPN ' + (serverSettings.effective.vpnEnabled ? $t('settingsCompatForceOn') : $t('settingsCompatForceOff')) + ' · ' + serverSettings.effective.wgHost + ' · ' + serverSettings.effective.wgDefaultDns">
-                {{ $t('settingsEffective') }}: {{ serverSettings.effective.vpnEnabled ? $t('settingsCompatForceOn') : $t('settingsCompatForceOff') }} · {{ serverSettings.effective.wgHost }} · {{ serverSettings.effective.wgDefaultDns }}
+              <p v-if="serverSettings && serverSettings.effective" class="text-xs text-gray-500 dark:text-neutral-500 font-mono truncate" :title="settingsEffectiveTooltip">
+                {{ $t('settingsEffective') }}: {{ serverSettings.effective.vpnEnabled ? $t('settingsCompatForceOn') : $t('settingsCompatForceOff') }} · {{ serverSettings.effective.wgHost }}<template v-if="effectiveDnsDisplayed"> · {{ effectiveDnsDisplayed }}</template>
               </p>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                 <div class="sm:col-span-1">

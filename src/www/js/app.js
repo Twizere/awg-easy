@@ -815,6 +815,27 @@ new Vue({
       opts.stroke.width = UI_CHART_TYPES[this.uiChartType].strokeWidth;
       return opts;
     },
+    /** Normalized DNS list for Active line (comma + space between servers). */
+    effectiveDnsDisplayed() {
+      if (!this.serverSettings || !this.serverSettings.effective) return '';
+      const raw = this.serverSettings.effective.wgDefaultDns;
+      if (raw == null || String(raw).trim() === '') return '';
+      return String(raw).split(',').map((x) => x.trim()).filter(Boolean).join(', ');
+    },
+    settingsEffectiveTooltip() {
+      if (!this.serverSettings || !this.serverSettings.effective) return '';
+      const e = this.serverSettings.effective;
+      const vpn = e.vpnEnabled ? this.$t('settingsCompatForceOn') : this.$t('settingsCompatForceOff');
+      let t = `${this.$t('settingsEffective')}: ${vpn} · ${e.wgHost || ''}`;
+      if (this.effectiveDnsDisplayed) t += ` · ${this.effectiveDnsDisplayed}`;
+      return t;
+    },
+    settingsDnsPlaceholderResolved() {
+      if (this.serverSettings && this.serverSettings.env && this.serverSettings.env.wgDefaultDns) {
+        return this.serverSettings.env.wgDefaultDns;
+      }
+      return this.$t('settingsDnsPlaceholder');
+    },
     updateCharts() {
       return this.uiChartType > 0 && this.uiShowCharts;
     },
