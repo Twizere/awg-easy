@@ -9,7 +9,6 @@ const Util = require('./Util');
 const ServerError = require('./ServerError');
 const {
   WG_PATH,
-  WG_PORT,
   WG_DEFAULT_ADDRESS,
   WG_TUNNEL_DEFAULT_LISTEN_PORT,
   WG_PUBLISHED_UDP_PORT_MIN,
@@ -99,16 +98,24 @@ module.exports = class TunnelRegistry {
       const pn = parseInt(String(p), 10);
       if (Number.isFinite(pn)) ports.add(pn);
     }
-    // Do not reserve WG_PORT here — it is the intended default for the first tunnel. Pre-marking it
-    // forced every new wg0 to use WG_PORT+1 (often matching PORT by coincidence when PORT=51821).
+    // Do not pre-mark WG_PUBLISHED_UDP_PORT_MIN here (same reason as legacy WG_PORT pre-mark: would skip the first free port).
     return { thirds, ports };
   }
 
-  async __defaultsForNewTunnelFile(ifName) {
+  /**
+   * @param {string} ifName
+   * @param {{ listenPort?: number } | null | undefined} hints When creating a tunnel from sync_tunnels/add_tunnel,
+   *   use this listen port before falling back to env defaults (avoids defaulting to WG_PORT outside WG_UDP_PORT_RANGE).
+   */
+  async __defaultsForNewTunnelFile(ifName, hints) {
     const { thirds, ports } = await this.__snapshotUsedAddressThirdOctetsAndPorts();
     const oct = WG_DEFAULT_ADDRESS.split('.');
     if (oct.length !== 4) {
-      let port = (parseInt(WG_PORT, 10) || 51820) + 1;
+      let port = WG_PUBLISHED_UDP_PORT_MIN;
+      if (hints && hints.listenPort != null) {
+        const hp = parseInt(String(hints.listenPort), 10);
+        if (Number.isFinite(hp)) port = hp;
+      }
       const occupied = new Set(ports);
       while (occupied.has(port)) {
         port += 1;
@@ -128,10 +135,14 @@ module.exports = class TunnelRegistry {
     if (third > 254) third = 254;
     const address = `${oct[0]}.${oct[1]}.${third}.1`;
 
-    let port = parseInt(WG_PORT, 10) || 51820;
+    let port = WG_PUBLISHED_UDP_PORT_MIN;
     const mapped = WG_TUNNEL_DEFAULT_LISTEN_PORT[ifName];
     if (mapped != null && String(mapped).trim() !== '') {
       port = parseInt(String(mapped), 10) || port;
+    }
+    if (hints && hints.listenPort != null) {
+      const hp = parseInt(String(hints.listenPort), 10);
+      if (Number.isFinite(hp)) port = hp;
     }
     const occupied = new Set(ports);
     // Env-assigned port for this interface is ours, not a collision with another tunnel.
@@ -153,7 +164,11 @@ module.exports = class TunnelRegistry {
     return { address, listenPort: port };
   }
 
-  async getTunnel(ifName) {
+  /**
+   * @param {{ newTunnelHints?: { listenPort?: number } }} [options] Used when the tunnel JSON does not exist yet
+   *   (e.g. sync_tunnels / add_tunnel include listen_port so defaults stay inside WG_UDP_PORT_RANGE).
+   */
+  async getTunnel(ifName, options = {}) {
     if (!Util.isValidTunnelInterfaceName(ifName)) {
       throw new ServerError(`Invalid tunnel name: ${ifName}`, 400);
     }
@@ -162,7 +177,7 @@ module.exports = class TunnelRegistry {
       try {
         await fs.access(path.join(WG_PATH, `${ifName}.json`));
       } catch {
-        defaults = await this.__defaultsForNewTunnelFile(ifName);
+        defaults = await this.__defaultsForNewTunnelFile(ifName, options.newTunnelHints || null);
       }
       this.tunnels.set(ifName, new WireGuardTunnel(ifName, { newTunnelDefaults: defaults }));
     }
@@ -374,7 +389,13 @@ module.exports = class TunnelRegistry {
       if (!spec || !spec.name || !Util.isValidTunnelInterfaceName(spec.name)) {
         throw new ServerError('Invalid tunnel spec: name is required', 400);
       }
-      await (await this.getTunnel(spec.name)).applyCompatTunnelSpec(spec);
+      const lp = spec.listen_port ?? spec.listenport;
+      const newTunnelHints = {};
+      if (lp != null && String(lp).trim() !== '') {
+        const p = parseInt(String(lp), 10);
+        if (Number.isFinite(p)) newTunnelHints.listenPort = p;
+      }
+      await (await this.getTunnel(spec.name, { newTunnelHints })).applyCompatTunnelSpec(spec);
     }
     this.__initPromise = null;
     this.tunnels.clear();
@@ -398,7 +419,12 @@ module.exports = class TunnelRegistry {
     if (exists && !overwrite) {
       throw new ServerError(`Tunnel ${name} already exists; pass overwrite=true to update, or use sync_tunnels.`, 400);
     }
-    await (await this.getTunnel(name)).mergeAddTunnelFormat(tunnelData);
+    const newTunnelHints = {};
+    if (tunnelData.listenport != null && String(tunnelData.listenport).trim() !== '') {
+      const p = parseInt(String(tunnelData.listenport), 10);
+      if (Number.isFinite(p)) newTunnelHints.listenPort = p;
+    }
+    await (await this.getTunnel(name, { newTunnelHints })).mergeAddTunnelFormat(tunnelData);
     this.__initPromise = null;
     this.tunnels.clear();
     await this.refreshOrderedTunnelNames();

@@ -146,8 +146,9 @@ module.exports.H4 = process.env.H4 || getRandomHeader();
 
   const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
   const namesNeedingPort = [];
-  const base = parseInt(module.exports.WG_PORT, 10);
-  const basePort = Number.isFinite(base) && base > 0 ? base : 51820;
+  const basePort = Number.isFinite(module.exports.WG_PUBLISHED_UDP_PORT_MIN) && module.exports.WG_PUBLISHED_UDP_PORT_MIN > 0
+    ? module.exports.WG_PUBLISHED_UDP_PORT_MIN
+    : 51820;
 
   for (const part of parts) {
     if (part.includes(':')) {
