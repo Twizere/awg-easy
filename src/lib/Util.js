@@ -41,6 +41,24 @@ module.exports = class Util {
     return true;
   }
 
+  /**
+   * WireGuard server LAN address for /24 pools must not be .0 (network) or .255 (broadcast).
+   * Using 172.16–172.31 inside Docker often clashes with `eth0`; prefer 10.x not used elsewhere.
+   */
+  static assertSaneWireGuardServerLanIPv4(address) {
+    const a = String(address || '').trim();
+    if (!Util.isValidIPv4(a)) {
+      throw new ServerError(`Invalid server IPv4 address: ${address}`, 400);
+    }
+    const last = parseInt(a.split('.')[3], 10);
+    if (last === 0 || last === 255) {
+      throw new ServerError(
+        `Invalid WireGuard server address ${a}: last octet cannot be .0 or .255. Use e.g. 10.66.0.1 for a /24 tunnel.`,
+        400,
+      );
+    }
+  }
+
   static promisify(fn) {
     // eslint-disable-next-line func-names
     return function(req, res) {

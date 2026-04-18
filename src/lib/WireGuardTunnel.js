@@ -168,6 +168,7 @@ module.exports = class WireGuardTunnel {
   }
 
   async __saveConfig(config) {
+    Util.assertSaneWireGuardServerLanIPv4(config.server.address);
     const listenPort = this.__effectiveListenPort(config);
     const serverSubnet = this.__serverSubnetSlash24(config);
     const tpl = (s) => this.__expandWireguardScriptTemplates(s, listenPort, serverSubnet);
@@ -747,6 +748,7 @@ Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
     const config = await this.getConfig();
     const host = this.__parseTunnelServerAddress(spec);
     if (host) {
+      Util.assertSaneWireGuardServerLanIPv4(host);
       config.server.address = host;
     }
     const cfg = spec.config || {};
@@ -788,7 +790,10 @@ Endpoint = ${WG_HOST}:${this.__effectiveListenPort(config)}`;
         : null,
       addresses: tunnelData.addresses,
     });
-    if (host) config.server.address = host;
+    if (host) {
+      Util.assertSaneWireGuardServerLanIPv4(host);
+      config.server.address = host;
+    }
     if (tunnelData.listenport != null && String(tunnelData.listenport).trim() !== '') {
       const p = parseInt(String(tunnelData.listenport), 10);
       if (p < 1 || p > 65535) {

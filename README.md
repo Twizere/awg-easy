@@ -151,7 +151,7 @@ These options can be configured by setting environment variables using `-e KEY="
 ### Multiple tunnels (quick reference)
 
 * **On disk:** `{WG_PATH}/{ifName}.json` and `{ifName}.conf` (e.g. `wg0.json`, `wg1.json`). Legacy installs with only `wg0.json` behave as before.
-* **Subnets:** each tunnel should use a **non-overlapping** `/24` (server address drives the client pool, e.g. `10.8.0.1` → clients `10.8.0.x`; a new tunnel picks the next free third octet when created).
+* **Subnets:** each tunnel should use a **non-overlapping** `/24` (server address drives the client pool, e.g. `10.8.0.1` → clients `10.8.0.x`; a new tunnel picks the next free third octet when created). The server address **must not** end in `.0` or `.255`. **Docker:** the container’s `eth0` is usually in **`172.17.0.0/16`–`172.31.0.0/16`**; do **not** put a tunnel’s `/24` in the same range as `eth0` (e.g. if `eth0` is `172.18.0.2/16`, avoid `172.18.0.0/24` for WireGuard or clients can conflict with the container IP and lose internet).
 * **Web UI:** tunnel dropdown when more than one tunnel exists; API paths `/api/wireguard/{tunnel}/client/...` (legacy `/api/wireguard/client/...` stays on **`wg0`**).
 * **Backup:** `GET /api/wireguard/backup?tunnel=wg0` (default), `?tunnel=all` for a single JSON file with `{ "_format": "...", "tunnels": { "wg0": {...}, "wg1": {...} } }`. Restore that file via **`PUT /api/wireguard/restore`**; the server detects the multi-tunnel format and restores every listed tunnel.
 
